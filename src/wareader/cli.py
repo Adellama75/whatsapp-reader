@@ -133,6 +133,17 @@ def cmd_summarise(c: cfg.Config, args) -> None:
     print(render(date.today(), {g.label: summarise(_client(), c.model, c.effort, g.label, t)}))
 
 
+def cmd_transcript(c: cfg.Config, args) -> None:
+    """Print the pseudonymised messages of one allowlisted group; never calls the API."""
+    g = _find_group(c, args.group)
+    since = datetime.now(timezone.utc) - timedelta(days=args.days)
+    msgs = messages_since(c.decrypted_db, g.jid, since)
+    if not msgs:
+        print(f"No messages in {g.label} in the last {args.days} day(s).")
+        return
+    print(transcript(load_or_create_secret(c.secret_file), msgs))
+
+
 def cmd_show(c: cfg.Config, args) -> None:
     """Print a stored daily digest (today's by default, else the latest)."""
     digests = c.data_dir / "digests"
@@ -169,6 +180,11 @@ def main() -> None:
     s.add_argument("--days", type=int, default=1)
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(fn=cmd_summarise)
+
+    t = sub.add_parser("transcript", help="print the raw pseudonymised messages of one allowlisted group")
+    t.add_argument("group", help="label or JID, as in config.toml")
+    t.add_argument("--days", type=int, default=1)
+    t.set_defaults(fn=cmd_transcript)
 
     show = sub.add_parser("show", help="print a stored daily digest")
     show.add_argument("date", nargs="?", help="YYYY-MM-DD (default: latest)")
