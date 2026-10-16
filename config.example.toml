@@ -21,3 +21,7 @@ effort = "low"
 [[groups]]
 jid = "120363000000000000@g.us"
 label = "Course chat"
+# pseudonymise = false   # only with the group's consent: real names from [names], text unscrubbed
+
+# [names]
+# "57153196953645" = "Alice"   # jid user (LID or number) -> display name

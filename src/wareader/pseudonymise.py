@@ -47,11 +47,29 @@ def scrub(secret: bytes, text: str) -> str:
     )
 
 
-def transcript(secret: bytes, messages: list[Message]) -> str:
-    """Pseudonymised plain-text transcript, one line per message."""
+def transcript(secret: bytes | None, messages: list[Message], names: dict[str, str] | None = None) -> str:
+    """Plain-text transcript, one line per message, reactions appended in brackets.
+
+    Default: senders become HMAC labels and text is scrubbed. With `names` (a group
+    whose members agreed to pseudonymise = false), senders and @mentions are shown
+    by name, falling back to the raw ID, and text is left untouched.
+    """
+    if names is None:
+        assert secret is not None
+        who = lambda u: label(secret, u)  # noqa: E731
+        clean = lambda t: scrub(secret, t)  # noqa: E731
+    else:
+        who = lambda u: names.get(u, u)  # noqa: E731
+        clean = lambda t: MENTION.sub(lambda m: "@" + names.get(m.group(1), m.group(1)), t)  # noqa: E731
+
+    def person(u: str | None) -> str:
+        return "Me" if u is None else who(u)
+
     lines = []
     for m in messages:
-        who = "Me" if m.sender is None else label(secret, m.sender)
         when = m.sent_at.strftime("%a %d %b %H:%M")
-        lines.append(f"[{when}] {who}: {scrub(secret, m.text)}")
+        line = f"[{when}] {person(m.sender)}: {clean(m.text)}"
+        if m.reactions:
+            line += " [" + ", ".join(f"{e} {person(u)}" for u, e in m.reactions) + "]"
+        lines.append(line)
     return "\n".join(lines)

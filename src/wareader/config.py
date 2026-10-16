@@ -1,5 +1,5 @@
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -7,6 +7,9 @@ from pathlib import Path
 class Group:
     jid: str
     label: str
+    # False: real names from [names] (else the backup's masked number), text unscrubbed.
+    # Only for groups where everyone has agreed; the digest for such a group is sent to the API as-is.
+    pseudonymise: bool = True
 
 
 @dataclass
@@ -19,6 +22,7 @@ class Config:
     effort: str
     groups: list[Group]
     phone: str | None = None  # scp source, e.g. galangal:/sdcard/.../msgstore.db.crypt15
+    names: dict[str, str] = field(default_factory=dict)  # jid user (LID or number) -> display name
 
     @property
     def decrypted_db(self) -> Path:
@@ -41,4 +45,5 @@ def load(path: Path) -> Config:
         effort=raw["summariser"]["effort"],
         groups=[Group(**g) for g in raw.get("groups", [])],
         phone=paths.get("phone"),
+        names=raw.get("names", {}),
     )

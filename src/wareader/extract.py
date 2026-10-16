@@ -6,7 +6,7 @@ your own DB with `sqlite3 data/msgstore.db .schema` if anything comes back empty
 """
 
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,6 +17,7 @@ class Message:
     sent_at: datetime
     sender: str | None  # jid user part (phone number or LID); None means you sent it
     text: str
+    reactions: list[tuple[str | None, str]] = field(default_factory=list)  # (sender, emoji)
 
 
 def list_groups(db: Path) -> list[tuple[str, str]]:
@@ -38,7 +39,7 @@ def messages_since(db: Path, chat_jid: str, since: datetime) -> list[Message]:
     with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
         rows = conn.execute(
             """
-            SELECT m.timestamp, m.from_me, sender.user, m.text_data
+            SELECT m._id, m.timestamp, m.from_me, sender.user, m.text_data
             FROM message m
             JOIN chat ON chat._id = m.chat_row_id
             JOIN jid AS chat_jid ON chat_jid._id = chat.jid_row_id
@@ -50,15 +51,51 @@ def messages_since(db: Path, chat_jid: str, since: datetime) -> list[Message]:
             """,
             (chat_jid, since_ms),
         ).fetchall()
+        # Reactions live in message_add_on, pointing at the message they decorate.
+        # A sender's latest reaction wins; an empty reaction means it was removed.
+        reactions: dict[int, dict[str | None, str]] = {}
+        for parent, from_me, user, emoji in conn.execute(
+            """
+            SELECT a.parent_message_row_id, a.from_me, sender.user, r.reaction
+            FROM message_add_on a
+            JOIN message_add_on_reaction r ON r.message_add_on_row_id = a._id
+            JOIN chat ON chat._id = a.chat_row_id
+            JOIN jid AS chat_jid ON chat_jid._id = chat.jid_row_id
+            LEFT JOIN jid AS sender ON sender._id = a.sender_jid_row_id
+            WHERE chat_jid.raw_string = ? AND a.timestamp > ?
+            ORDER BY a.timestamp
+            """,
+            (chat_jid, since_ms),
+        ):
+            reactions.setdefault(parent, {})[None if from_me else user] = emoji
     return [
         Message(
             chat_jid=chat_jid,
             sent_at=datetime.fromtimestamp(ts / 1000, tz=timezone.utc),
             sender=None if from_me else user,
             text=text,
+            reactions=[(who, e) for who, e in reactions.get(mid, {}).items() if e],
         )
-        for ts, from_me, user, text in rows
+        for mid, ts, from_me, user, text in rows
     ]
+
+
+def display_names(db: Path, users: set[str]) -> dict[str, str]:
+    """Whatever the backup knows about these senders: usually just a masked number."""
+    if not users:
+        return {}
+    marks = ",".join("?" * len(users))
+    with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
+        return dict(
+            conn.execute(
+                f"""
+                SELECT jid.user, d.display_name
+                FROM lid_display_name d JOIN jid ON jid._id = d.lid_row_id
+                WHERE jid.user IN ({marks})
+                """,
+                tuple(users),
+            ).fetchall()
+        )
 
 
 # chat.group_type as observed in a 2026 backup (undocumented; verify against yours).

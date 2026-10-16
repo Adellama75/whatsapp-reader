@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import config as cfg
 from .decrypt import decrypt
-from .extract import group_index, list_groups, messages_since
+from .extract import display_names, group_index, list_groups, messages_since
 from .pseudonymise import load_or_create_secret, transcript
 
 
@@ -24,6 +24,14 @@ def _client():
     return anthropic.Anthropic(
         default_headers={"anthropic-workspace-id": workspace} if workspace else None
     )
+
+
+def _transcript(c: cfg.Config, g: cfg.Group, msgs) -> str:
+    if g.pseudonymise:
+        return transcript(load_or_create_secret(c.secret_file), msgs)
+    users = {m.sender for m in msgs if m.sender} | {u for m in msgs for u, _ in m.reactions if u}
+    names = display_names(c.decrypted_db, users) | c.names  # config.toml [names] wins
+    return transcript(None, msgs, names=names)
 
 
 def _find_group(c: cfg.Config, name: str) -> cfg.Group:
@@ -74,7 +82,6 @@ def cmd_groups(c: cfg.Config, args) -> None:
 
 
 def cmd_run(c: cfg.Config, args) -> None:
-    secret = load_or_create_secret(c.secret_file)
     state = _load_state(c.state_file)
     default_since = datetime.now(timezone.utc) - timedelta(days=args.days)
     now = datetime.now(timezone.utc)
@@ -84,7 +91,7 @@ def cmd_run(c: cfg.Config, args) -> None:
         since = datetime.fromisoformat(state[g.jid]) if g.jid in state else default_since
         msgs = messages_since(c.decrypted_db, g.jid, since)
         if msgs:
-            transcripts[g] = transcript(secret, msgs)
+            transcripts[g] = _transcript(c, g, msgs)
 
     if args.dry_run:
         # Shows exactly what would be sent to the API.
@@ -122,7 +129,7 @@ def cmd_summarise(c: cfg.Config, args) -> None:
     if not msgs:
         print(f"No messages in {g.label} in the last {args.days} day(s).")
         return
-    t = transcript(load_or_create_secret(c.secret_file), msgs)
+    t = _transcript(c, g, msgs)
     if args.dry_run:
         print(t)
         return
@@ -141,7 +148,7 @@ def cmd_transcript(c: cfg.Config, args) -> None:
     if not msgs:
         print(f"No messages in {g.label} in the last {args.days} day(s).")
         return
-    print(transcript(load_or_create_secret(c.secret_file), msgs))
+    print(_transcript(c, g, msgs))
 
 
 def cmd_show(c: cfg.Config, args) -> None:
