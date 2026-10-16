@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -27,6 +29,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	"golang.org/x/term"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -43,15 +46,17 @@ func main() {
 	dataDir := flag.String("data", "data", "directory for session.db and live.db")
 	configPath := flag.String("config", "config.toml", "wareader config (only [[groups]] and [bridge] are read)")
 	pair := flag.Bool("pair", false, "show a QR code to link this device, then exit")
+	phone := flag.String("phone", "", "with -pair: link by 8-character code instead of QR, for this phone number (international format, e.g. 447700900123)")
+	qrStyle := flag.String("qr", "half", "QR rendering: half (compact) or full (one terminal row per module; try this if the phone won't scan)")
 	flag.Parse()
 	log.SetFlags(log.Ltime)
 
-	if err := run(*dataDir, *configPath, *pair); err != nil {
+	if err := run(*dataDir, *configPath, *pair, *phone, *qrStyle); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(dataDir, configPath string, pair bool) error {
+func run(dataDir, configPath string, pair bool, phone, qrStyle string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -94,7 +99,7 @@ func run(dataDir, configPath string, pair bool) error {
 			log.Print("not linked to a phone yet: run `wareader link`")
 			os.Exit(exitNeedsPairing)
 		}
-		if err := b.pairWithQR(ctx); err != nil {
+		if err := b.pair(ctx, phone, qrStyle); err != nil {
 			return err
 		}
 		select { // pairing reconnects; wait for the session to come up so the phone sees the device
@@ -130,7 +135,10 @@ func run(dataDir, configPath string, pair bool) error {
 	}
 }
 
-func (b *bridge) pairWithQR(ctx context.Context) error {
+// pair links this device to the phone. By default it shows QR codes (a fresh
+// one every ~20 s until one is scanned). With a phone number it instead asks
+// WhatsApp for an 8-character code to type in under "Link with phone number".
+func (b *bridge) pair(ctx context.Context, phone, qrStyle string) error {
 	qr, err := b.cli.GetQRChannel(ctx)
 	if err != nil {
 		return err
@@ -138,12 +146,26 @@ func (b *bridge) pairWithQR(ctx context.Context) error {
 	if err := b.cli.Connect(); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
+	codeShown := false
 	for item := range qr {
 		switch item.Event {
 		case "code":
-			fmt.Println("\nOn the phone: WhatsApp > ⋮ > Linked devices > Link a device, then scan:")
-			qrterminal.GenerateHalfBlock(item.Code, qrterminal.L, os.Stdout)
-			fmt.Printf("(this code is valid for %s; a fresh one follows if it expires)\n", item.Timeout.Round(time.Second))
+			if phone != "" {
+				if codeShown {
+					continue // the link code stays valid while the login socket lives; nothing to redraw
+				}
+				// Browser-style name is required: the server rejects anything else. The phone shows
+				// it only until pairing completes; afterwards the device is listed under DeviceProps.Os.
+				code, err := b.cli.PairPhone(ctx, phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+				if err != nil {
+					return fmt.Errorf("requesting a link code: %w", err)
+				}
+				codeShown = true
+				fmt.Printf("\nOn the phone: WhatsApp > ⋮ > Linked devices > Link a device > Link with phone number instead,\nthen enter this code within about two minutes:\n\n    %s\n\n", code)
+				continue
+			}
+			showQR(item.Code, qrStyle)
+			fmt.Printf("(valid for %s; a fresh one appears when it expires)\n", item.Timeout.Round(time.Second))
 		case whatsmeow.QRChannelSuccess.Event:
 			fmt.Println("Paired.")
 			return nil
@@ -152,6 +174,27 @@ func (b *bridge) pairWithQR(ctx context.Context) error {
 		}
 	}
 	return fmt.Errorf("pairing cancelled")
+}
+
+// showQR draws the code with explicit black-on-white ANSI colours so that it
+// scans the same in light and dark terminals. WhatsApp's scanner, unlike a
+// camera app, rejects inverted codes and codes with gaps between rows.
+func showQR(code, style string) {
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		fmt.Print("\033[2J\033[H") // clear, so only the current (unexpired) code is on screen
+	}
+	fmt.Println("On the phone: WhatsApp > ⋮ > Linked devices > Link a device, then scan:")
+	fmt.Println()
+	var buf bytes.Buffer
+	if style == "full" {
+		qrterminal.Generate(code, qrterminal.L, &buf) // colour per cell; largest but most robust
+	} else {
+		qrterminal.GenerateHalfBlock(code, qrterminal.L, &buf)
+	}
+	for _, line := range strings.Split(strings.TrimRight(buf.String(), "\n"), "\n") {
+		fmt.Printf("\033[97;40m%s\033[0m\n", line) // white foreground on black background, whatever the theme
+	}
+	fmt.Println()
 }
 
 func (b *bridge) handle(ctx context.Context, evt any, connected chan struct{}) {

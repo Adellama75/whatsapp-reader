@@ -54,7 +54,7 @@ func TestStoreEditDeleteAndReactions(t *testing.T) {
 	must(s.PutReaction(ctx, chat, "A", "222", "❤️", at))
 	must(s.PutReaction(ctx, chat, "A", "222", "👏", at.Add(time.Minute))) // latest wins
 	must(s.PutReaction(ctx, chat, "A", "222", "🙈", at))                  // stale update ignored
-	must(s.PutReaction(ctx, chat, "A", "", "👍", at))                      // from me
+	must(s.PutReaction(ctx, chat, "A", "", "👍", at))                     // from me
 
 	var text string
 	var n int
@@ -97,7 +97,7 @@ func TestAllowlistReloadsOnChange(t *testing.T) {
 	write("[bridge]\nhistory_days = 30\n[[groups]]\njid = \"2@g.us\"\nlabel = \"B\"\n")
 	future := time.Now().Add(2 * time.Second)
 	os.Chtimes(path, future, future) // make sure the mtime differs even within the same second
-	a.seen = time.Time{}            // force the periodic check
+	a.seen = time.Time{}             // force the periodic check
 	if a.Allows("1@g.us") || !a.Allows("2@g.us") || a.HistoryDays != 30 {
 		t.Fatal("allowlist did not reload")
 	}

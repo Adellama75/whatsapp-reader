@@ -136,7 +136,10 @@ def cmd_link(c: cfg.Config, args) -> None:
     running = subprocess.run(["systemctl", "--user", "is-active", "--quiet", unit]).returncode == 0
     if running:
         subprocess.run(["systemctl", "--user", "stop", unit], check=True)
-    subprocess.run([str(c.bridge), "-pair", "-data", str(c.data_dir), "-config", str(args.config)], check=True)
+    cmd = [str(c.bridge), "-pair", "-data", str(c.data_dir), "-config", str(args.config), "-qr", args.qr]
+    if args.phone:
+        cmd += ["-phone", args.phone]
+    subprocess.run(cmd, check=True)
     if running or subprocess.run(["systemctl", "--user", "is-enabled", "--quiet", unit]).returncode == 0:
         subprocess.run(["systemctl", "--user", "start", unit], check=True)
         print("bridge started")
@@ -152,7 +155,10 @@ def main() -> None:
     sub.add_parser("groups", help="print the allowlisted groups").set_defaults(fn=cmd_groups)
     sub.add_parser("index", help="write data/groups.tsv: all joined groups with kind, size, activity, community").set_defaults(fn=cmd_index)
     sub.add_parser("status", help="bridge connection state and per-group freshness").set_defaults(fn=cmd_status)
-    sub.add_parser("link", help="pair with the phone (QR code), then (re)start the bridge").set_defaults(fn=cmd_link)
+    link = sub.add_parser("link", help="pair with the phone (QR code or link code), then (re)start the bridge")
+    link.add_argument("--phone", help="your number in international format (e.g. 447700900123): get an 8-character code instead of a QR")
+    link.add_argument("--qr", choices=["half", "full"], default="half", help="QR size; 'full' if the phone won't scan 'half'")
+    link.set_defaults(fn=cmd_link)
 
     def period(sp):
         sp.add_argument("--days", type=float, default=1, help="lookback (default 1)")
