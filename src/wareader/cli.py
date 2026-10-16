@@ -50,10 +50,17 @@ def cmd_run(c: cfg.Config, args) -> None:
     )
     digests = {g.label: summarise(client, c.model, c.effort, g.label, t) for g, t in transcripts.items()}
 
-    out = c.data_dir / "digests" / f"{date.today()}.md"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(date.today(), digests))
-    print(out.read_text())
+    if not digests:
+        print("Nothing new since the last run.")
+    else:
+        out = c.data_dir / "digests" / f"{date.today()}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        text = render(date.today(), digests)
+        if out.exists():
+            # Second run today: add to the day's digest rather than replacing it.
+            text = out.read_text() + f"\n---\n_Update {datetime.now():%H:%M}_\n\n" + text.split("\n", 2)[2]
+        out.write_text(text)
+        print(out.read_text())
 
     state.update({g.jid: now.isoformat() for g in c.groups})
     c.state_file.write_text(json.dumps(state, indent=2))

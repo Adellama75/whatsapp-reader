@@ -70,6 +70,8 @@ label = "Robotics Soc"
     assert len(sent) == 1 and "447700900001" not in sent[0] and "not allowlisted" not in sent[0]
     assert (data / "state.json").exists()
 
-    # Second run: nothing new since the last run, so no API call.
-    run("run")
+    # Second run: nothing new since the last run, so no API call and no clobbered digest.
+    assert "Nothing new" in run("run")
     assert len(sent) == 1
+    digest = next((data / "digests").glob("*.md")).read_text()
+    assert "**Social** (Thursday 19:00)" in digest
