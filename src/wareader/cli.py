@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import config as cfg
 from .decrypt import decrypt
-from .extract import list_groups, messages_since
+from .extract import group_index, list_groups, messages_since
 from .pseudonymise import load_or_create_secret, transcript
 
 
@@ -47,6 +47,25 @@ def cmd_fetch(c: cfg.Config, args) -> None:
 def cmd_list_groups(c: cfg.Config, args) -> None:
     for jid, subject in list_groups(c.decrypted_db):
         print(f"{jid}\t{subject}")
+
+
+def cmd_index(c: cfg.Config, args) -> None:
+    """Write data/groups.tsv: every group with kind, size, activity and likely community."""
+    allow = {g.jid for g in c.groups}
+    lines = ["jid\tsubject\tkind\tmembers\tmessages\tlast_message\tcommunity\tshared\tallowlisted"]
+    for g in group_index(c.decrypted_db):
+        last = g.last_message.strftime("%Y-%m-%d %H:%M") if g.last_message else ""
+        parent = f"{g.parent} ({g.parent_jid})" if g.parent else ""
+        shared = f"{g.shared}/{g.members}" if g.parent else ""
+        lines.append(
+            f"{g.jid}\t{g.subject}\t{g.kind}\t{g.members}\t{g.messages}\t{last}\t{parent}\t{shared}\t{'yes' if g.jid in allow else ''}"
+        )
+    text = "\n".join(lines) + "\n"
+    out = c.data_dir / "groups.tsv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text)
+    print(text, end="")
+    print(f"wrote {out}", file=sys.stderr)
 
 
 def cmd_groups(c: cfg.Config, args) -> None:
@@ -138,6 +157,7 @@ def main() -> None:
     sub.add_parser("fetch", help="copy the backup from the phone over SSH").set_defaults(fn=cmd_fetch)
     sub.add_parser("list-groups", help="print every group ID and name in the backup").set_defaults(fn=cmd_list_groups)
     sub.add_parser("groups", help="print the allowlisted groups").set_defaults(fn=cmd_groups)
+    sub.add_parser("index", help="write data/groups.tsv: all groups with kind, size, activity, likely community").set_defaults(fn=cmd_index)
 
     run = sub.add_parser("run", help="summarise new messages in allowlisted groups")
     run.add_argument("--days", type=int, default=1, help="lookback on first run")

@@ -59,3 +59,77 @@ def messages_since(db: Path, chat_jid: str, since: datetime) -> list[Message]:
         )
         for ts, from_me, user, text in rows
     ]
+
+
+# chat.group_type as observed in a 2026 backup (undocumented; verify against yours).
+GROUP_KINDS = {0: "group", 1: "announcements", 2: "subgroup", 3: "community", 6: "subgroup"}
+
+
+@dataclass
+class GroupInfo:
+    jid: str
+    subject: str
+    kind: str
+    members: int
+    messages: int
+    last_message: datetime | None
+    parent: str | None  # subject of the most likely community, for subgroups
+    parent_jid: str | None
+    shared: int  # members this subgroup shares with that community
+
+
+def group_index(db: Path) -> list[GroupInfo]:
+    """Every group with its kind, size, activity and (for subgroups) likely community.
+
+    The backup stores no direct subgroup -> community link, so the community is
+    inferred as the community whose member list overlaps this group's the most.
+    """
+    with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
+        rows = conn.execute(
+            """
+            SELECT chat._id, jid.raw_string, chat.subject, chat.group_type,
+                   (SELECT COUNT(*) FROM group_participant_user g WHERE g.group_jid_row_id = chat.jid_row_id),
+                   (SELECT COUNT(*) FROM message m WHERE m.chat_row_id = chat._id),
+                   (SELECT MAX(m.timestamp) FROM message m WHERE m.chat_row_id = chat._id)
+            FROM chat JOIN jid ON jid._id = chat.jid_row_id
+            WHERE jid.server = 'g.us'
+            """
+        ).fetchall()
+        overlaps = conn.execute(
+            """
+            SELECT sj.raw_string, cj.raw_string, COUNT(*)
+            FROM group_participant_user a
+            JOIN group_participant_user b ON a.user_jid_row_id = b.user_jid_row_id
+            JOIN chat sc ON sc.jid_row_id = a.group_jid_row_id
+            JOIN chat cc ON cc.jid_row_id = b.group_jid_row_id
+            JOIN jid sj ON sj._id = a.group_jid_row_id
+            JOIN jid cj ON cj._id = b.group_jid_row_id
+            WHERE sc.group_type IN (2, 6) AND cc.group_type = 3
+            GROUP BY 1, 2
+            """
+        ).fetchall()
+
+    subjects = {jid: subject for _, jid, subject, *_ in rows}
+    best: dict[str, tuple[str, int]] = {}
+    for sub, community, n in overlaps:
+        if n > best.get(sub, ("", 0))[1]:
+            best[sub] = (community, n)
+
+    out = []
+    for _, jid, subject, gtype, members, msgs, last_ms in rows:
+        parent_jid, shared = best.get(jid, (None, 0))
+        out.append(
+            GroupInfo(
+                jid=jid,
+                subject=subject or "",
+                kind=GROUP_KINDS.get(gtype, f"type{gtype}"),
+                members=members,
+                messages=msgs,
+                last_message=datetime.fromtimestamp(last_ms / 1000, tz=timezone.utc) if last_ms else None,
+                parent=subjects.get(parent_jid) if parent_jid else None,
+                parent_jid=parent_jid,
+                shared=shared,
+            )
+        )
+    out.sort(key=lambda g: (g.last_message or datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
+    return out
