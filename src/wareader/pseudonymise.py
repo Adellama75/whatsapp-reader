@@ -16,6 +16,9 @@ from .extract import Message
 MENTION = re.compile(r"@(\d{6,})")
 PHONE = re.compile(r"\+?\d[\d\s\-()]{8,}\d")
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+# Query strings and fragments often carry signed tokens (presigned S3 links from
+# Moodle, share links); host and path are all a summary needs.
+URL = re.compile(r"(https?://[^\s?#]+)[?#]\S*")
 
 
 def load_or_create_secret(path: Path) -> bytes:
@@ -34,6 +37,7 @@ def label(secret: bytes, jid_user: str) -> str:
 
 
 def scrub(secret: bytes, text: str) -> str:
+    text = URL.sub(r"\1", text)
     text = MENTION.sub(lambda m: "@" + label(secret, m.group(1)), text)
     text = EMAIL.sub("[email]", text)
     # Require 11+ digits so dates and times ("2026-10-08 19:00") survive.

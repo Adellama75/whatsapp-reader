@@ -36,6 +36,14 @@ def test_scrub_mentions_phones_emails_but_keeps_dates():
     assert "7700" not in out
 
 
+def test_scrub_strips_url_query_strings_and_fragments():
+    text = (
+        "see https://x.s3.amazonaws.com/a/b?X-Amz-Signature=abc123&E=1 and "
+        "https://ucl.ac.uk/page#top ok"
+    )
+    assert scrub(SECRET, text) == "see https://x.s3.amazonaws.com/a/b and https://ucl.ac.uk/page ok"
+
+
 def test_transcript_has_no_phone_numbers(db):
     msgs = messages_since(db, GROUP, datetime(2026, 10, 2, tzinfo=timezone.utc))
     t = transcript(SECRET, msgs)
