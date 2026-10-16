@@ -1,0 +1,21 @@
+# Copy to config.toml (which is gitignored) and fill in.
+
+[paths]
+# Encrypted nightly backup copied from the phone:
+#   Android/media/com.whatsapp/WhatsApp/Databases/msgstore.db.crypt15
+backup = "data/msgstore.db.crypt15"
+# File containing your 64-digit end-to-end backup key. Treat it like a master password.
+key_file = "~/.config/wareader/backup.key"
+# Secret for HMAC pseudonyms. Created automatically on first run; lose it and every label changes.
+secret_file = "~/.config/wareader/pseudonym.secret"
+# Decrypted DB, run state and digests live here.
+data_dir = "data"
+
+[summariser]
+model = "claude-opus-5-5"
+effort = "low"
+
+# Only these groups are ever read. Find IDs with: wareader list-groups
+[[groups]]
+jid = "120363000000000000@g.us"
+label = "Course chat"

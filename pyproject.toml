@@ -1,0 +1,22 @@
+[project]
+name = "wareader"
+version = "0.1.0"
+description = "Pseudonymised daily digests of WhatsApp group chats, from your own Android backup"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic",
+    "pydantic>=2",
+    "wa-crypt-tools",
+]
+
+[project.scripts]
+wareader = "wareader.cli:main"
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

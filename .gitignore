@@ -1,0 +1,19 @@
+# --- Private chat data: never commit ---
+*.crypt12
+*.crypt14
+*.crypt15
+*.db
+*.db-*
+*.key
+*.secret
+data/
+digests/
+config.toml
+.env
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
