@@ -28,6 +28,24 @@ uv run wareader run --dry-run --days 7     # inspect exactly what would be sent
 uv run wareader run --days 7
 ```
 
+## Running it every morning
+
+The job is a systemd user timer, so it needs no root. On the machine that will run it (a home server works well):
+
+```sh
+git clone https://github.com/Adellama75/wareader ~/dev/wareader && cd ~/dev/wareader
+uv sync
+cp config.example.toml config.toml            # set `phone` to an SSH alias the server can reach
+mkdir -p ~/.config/wareader && chmod 700 ~/.config/wareader
+# put backup.key, pseudonym.secret (copy from your laptop so labels stay stable) and
+# env (one line: ANTHROPIC_API_KEY=...) in ~/.config/wareader, all chmod 600
+./deploy/install.sh                           # 08:00 daily; edit deploy/wareader.timer to change
+```
+
+`wareader fetch` copies the backup off the phone over SSH (Termux's `sshd` on Android works, over Tailscale or the LAN), then `wareader --decrypt run` writes `data/digests/<date>.md`. Nothing is sent anywhere: read it with `wareader show`, or from another machine with `ssh server 'cd dev/wareader && uv run wareader show'`.
+
+For a one-off look at a single group without touching the daily state: `wareader summarise "UCL CS 26/27" --days 7`.
+
 ## Privacy
 
 - Only allowlisted groups are read. Ask a group before adding it.

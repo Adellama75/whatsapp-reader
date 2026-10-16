@@ -18,6 +18,7 @@ class Config:
     model: str
     effort: str
     groups: list[Group]
+    phone: str | None = None  # scp source, e.g. galangal:/sdcard/.../msgstore.db.crypt15
 
     @property
     def decrypted_db(self) -> Path:
@@ -39,4 +40,5 @@ def load(path: Path) -> Config:
         model=raw["summariser"]["model"],
         effort=raw["summariser"]["effort"],
         groups=[Group(**g) for g in raw.get("groups", [])],
+        phone=paths.get("phone"),
     )

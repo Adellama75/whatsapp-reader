@@ -4,6 +4,8 @@
 # Encrypted nightly backup copied from the phone:
 #   Android/media/com.whatsapp/WhatsApp/Databases/msgstore.db.crypt15
 backup = "data/msgstore.db.crypt15"
+# Optional: where `wareader fetch` copies it from (any scp source; here an SSH host alias).
+phone = "galangal:/sdcard/Android/media/com.whatsapp/WhatsApp/Databases/msgstore.db.crypt15"
 # File containing your 64-digit end-to-end backup key. Treat it like a master password.
 key_file = "~/.config/wareader/backup.key"
 # Secret for HMAC pseudonyms. Created automatically on first run; lose it and every label changes.

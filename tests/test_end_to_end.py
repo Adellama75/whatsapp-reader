@@ -4,8 +4,11 @@ The Claude call is stubbed so this runs offline and free; everything else is rea
 """
 
 import secrets
+import shutil
 import subprocess
 import sys
+
+import pytest
 
 from conftest import GROUP
 
@@ -18,13 +21,16 @@ def test_full_run(db, tmp_path, monkeypatch, capsys):
     key_file = tmp_path / "backup.key"
     key_file.write_text(" ".join(key[i : i + 4] for i in range(0, 64, 4)))  # spaced, like WhatsApp shows it
     backup = tmp_path / "msgstore.db.crypt15"
-    subprocess.run(["waencrypt", key, str(db), str(backup)], check=True, capture_output=True)
+    phone = tmp_path / "phone" / "msgstore.db.crypt15"
+    phone.parent.mkdir()
+    subprocess.run(["waencrypt", key, str(db), str(phone)], check=True, capture_output=True)
 
     data = tmp_path / "data"
     config = tmp_path / "config.toml"
     config.write_text(f"""
 [paths]
 backup = "{backup}"
+phone = "{phone}"
 key_file = "{key_file}"
 secret_file = "{tmp_path / 'pseudonym.secret'}"
 data_dir = "{data}"
@@ -57,7 +63,12 @@ label = "Robotics Soc"
         cli.main()
         return capsys.readouterr().out
 
+    if shutil.which("scp"):
+        assert "fetched" in run("fetch")
+    else:
+        shutil.copy(phone, backup)
     assert "Robotics Soc" in run("--decrypt", "list-groups")
+    assert run("groups").strip() == f"{GROUP}\tRobotics Soc"
     assert (data / "msgstore.db").exists()
 
     # Dry run sends nothing and leaves no state behind.
@@ -75,3 +86,15 @@ label = "Robotics Soc"
     assert len(sent) == 1
     digest = next((data / "digests").glob("*.md")).read_text()
     assert "**Social** (Thursday 19:00)" in digest
+
+    # Stored digest is readable on demand.
+    assert "**Social** (Thursday 19:00)" in run("show")
+
+    # One-off summary of a single group: calls the API, leaves daily state alone.
+    state_before = (data / "state.json").read_text()
+    assert "**Social** (Thursday 19:00)" in run("summarise", "robotics soc", "--days", "3650")
+    assert len(sent) == 2
+    assert (data / "state.json").read_text() == state_before
+    assert "No messages" in run("summarise", GROUP, "--days", "1")
+    with pytest.raises(SystemExit, match="not an allowlisted group"):
+        run("summarise", "chess club")

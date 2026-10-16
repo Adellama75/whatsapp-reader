@@ -1,0 +1,11 @@
+[Unit]
+Description=wareader: fetch the WhatsApp backup from the phone and write today's digest
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/dev/wareader
+EnvironmentFile=%h/.config/wareader/env
+ExecStart=%h/.local/bin/uv run wareader fetch
+ExecStart=%h/.local/bin/uv run wareader --decrypt run
