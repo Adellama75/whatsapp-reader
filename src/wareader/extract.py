@@ -54,7 +54,8 @@ def messages_since(db: Path, chat_jid: str, since: datetime) -> list[Message]:
         # Reactions live in message_add_on, pointing at the message they decorate.
         # A sender's latest reaction wins; an empty reaction means it was removed.
         reactions: dict[int, dict[str | None, str]] = {}
-        for parent, from_me, user, emoji in conn.execute(
+        try:
+            reaction_rows = conn.execute(
             """
             SELECT a.parent_message_row_id, a.from_me, sender.user, r.reaction
             FROM message_add_on a
@@ -65,8 +66,11 @@ def messages_since(db: Path, chat_jid: str, since: datetime) -> list[Message]:
             WHERE chat_jid.raw_string = ? AND a.timestamp > ?
             ORDER BY a.timestamp
             """,
-            (chat_jid, since_ms),
-        ):
+                (chat_jid, since_ms),
+            ).fetchall()
+        except sqlite3.OperationalError:  # older schema without reactions
+            reaction_rows = []
+        for parent, from_me, user, emoji in reaction_rows:
             reactions.setdefault(parent, {})[None if from_me else user] = emoji
     return [
         Message(

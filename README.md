@@ -10,7 +10,7 @@ msgstore.db.crypt15 ─decrypt─▶ msgstore.db ─extract─▶ messages ─ps
 
 1. **Decrypt:** WhatsApp writes `msgstore.db.crypt15` every night. With a 64-digit end-to-end backup key, [wa-crypt-tools](https://github.com/ElDavoo/wa-crypt-tools) decrypts it to SQLite.
 2. **Extract:** only groups listed in `config.toml` are read.
-3. **Pseudonymise:** senders become `Member-xxxx` (HMAC-SHA256 with a local secret), and phone numbers, emails and @mentions are scrubbed.
+3. **Pseudonymise:** senders become `Member-xxxx` (HMAC-SHA256 with a local secret), and phone numbers, emails and @mentions are scrubbed. Reactions are kept, attached to the message they answer.
 4. **Summarise:** pseudonymised text goes to the Claude API, which returns structured events, deadlines and announcements.
 5. **Render:** a markdown digest is written to `data/digests/`.
 
@@ -23,7 +23,7 @@ msgstore.db.crypt15 ─decrypt─▶ msgstore.db ─extract─▶ messages ─ps
 
 ```sh
 uv sync
-uv run wareader --decrypt list-groups      # find group IDs, add the consenting ones to config.toml
+uv run wareader --decrypt index            # every group: kind, size, activity, community; add consenting ones to config.toml
 uv run wareader run --dry-run --days 7     # inspect exactly what would be sent
 uv run wareader run --days 7
 ```
@@ -45,10 +45,37 @@ mkdir -p ~/.config/wareader && chmod 700 ~/.config/wareader
 `wareader fetch` copies the backup off the phone over SSH (Termux's `sshd` on Android works, over Tailscale or the LAN), then `wareader --decrypt run` writes `data/digests/<date>.md`. Nothing is sent anywhere: read it with `wareader show`, or from another machine with `ssh server 'cd dev/wareader && uv run wareader show'`.
 
 For a one-off look at a single group without touching the daily state: `wareader summarise "UCL CS 26/27" --days 7`.
+To read the messages themselves rather than a digest: `wareader transcript "UCL CS 26/27" --days 1` (pseudonymised, no API call).
+
+## Finding the right group
+
+Community sub-groups are usually all called "General", so `list-groups` alone can't tell them apart. `wareader index` writes `data/groups.tsv` with one row per group:
+
+```
+jid  subject  kind  members  messages  last_message  community  shared  allowlisted
+```
+
+`kind` comes from WhatsApp's `group_type` (group, community, announcements, subgroup). The backup stores no direct sub-group → community link, so `community` is the community whose member list overlaps this group's the most, with `shared` showing how many of the group's members it accounts for (e.g. `6/6`). In practice this is unambiguous.
+
+## Groups that have agreed to real names
+
+Pseudonymisation is per group. For a small working group where everyone has agreed, set `pseudonymise = false` on its entry; its transcripts and digests then show senders and @mentions by name and leave text unscrubbed. The backup does not contain contact names (WhatsApp keeps those in a database it does not back up), so supply them in a `[names]` table keyed by the sender ID shown in the raw transcript; unknown senders fall back to the masked number the backup holds, e.g. `+44∙∙∙∙∙∙∙∙81`.
+
+```toml
+[[groups]]
+jid = "1203630000000000@g.us"
+label = "Project team"
+pseudonymise = false
+
+[names]
+"57153196953645" = "Alice"
+```
+
+Note that a digest for such a group is sent to the Claude API with names intact.
 
 ## Privacy
 
-- Only allowlisted groups are read. Ask a group before adding it.
+- Only allowlisted groups are read. Ask a group before adding it, and only turn off pseudonymisation for a group that has explicitly agreed.
 - Phone numbers never leave your machine; labels can't be reversed without the local secret.
 - **Known limitation:** names typed in message text ("ask Priya") are not removed.
 - The `.gitignore` excludes backups, keys, decrypted DBs and digests. Tests use synthetic data only.

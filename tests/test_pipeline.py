@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 
 from conftest import GROUP
 
-from wareader.extract import list_groups, messages_since
+from wareader.extract import display_names, list_groups, messages_since
 from wareader.pseudonymise import label, scrub, transcript
 from wareader.render import render
 from wareader.summarise import Deadline, Event, GroupDigest
@@ -18,7 +18,11 @@ def test_list_groups(db):
 
 def test_messages_since_filters_by_group_time_and_text(db):
     msgs = messages_since(db, GROUP, datetime(2026, 10, 2, tzinfo=timezone.utc))
-    assert [(m.sender, m.text) for m in msgs] == [("447700900001", "Social Thursday 7pm"), (None, "I'm in")]
+    assert [(m.sender, m.text) for m in msgs] == [
+        ("447700900001", "Social Thursday 7pm"),
+        (None, "I'm in"),
+        ("57153196953645", "thanks @447700900001"),
+    ]
 
 
 def test_labels_are_stable_and_secret_dependent():
@@ -63,3 +67,21 @@ def test_render():
     })
     assert "**Social** (2026-10-08T19:00 · Bloomsbury Tavern)" in md
     assert "Nothing important in: Course chat" in md
+
+
+def test_reactions_attach_to_their_message_latest_wins(db):
+    msgs = messages_since(db, GROUP, datetime(2026, 10, 2, tzinfo=timezone.utc))
+    by_text = {m.text: m for m in msgs}
+    assert by_text["Social Thursday 7pm"].reactions == [(None, "👍"), ("57153196953645", "👏")]
+    assert by_text["I'm in"].reactions == []  # removed reaction is dropped
+    t = transcript(SECRET, msgs)
+    assert "[👍 Me, 👏 Member-" in t
+
+
+def test_named_transcript_uses_names_and_skips_scrubbing(db):
+    msgs = messages_since(db, GROUP, datetime(2026, 10, 2, tzinfo=timezone.utc))
+    assert display_names(db, {"57153196953645"}) == {"57153196953645": "+44∙∙∙∙∙∙∙∙81"}
+    t = transcript(None, msgs, names={"447700900001": "Alice", "57153196953645": "Bob"})
+    assert "Bob: thanks @Alice" in t
+    assert "Alice: Social Thursday 7pm [👍 Me, 👏 Bob]" in t
+    assert "Member-" not in t
