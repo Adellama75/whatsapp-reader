@@ -18,7 +18,7 @@ msgstore.db.crypt15 ─decrypt─▶ msgstore.db ─extract─▶ messages ─ps
 
 1. In WhatsApp: Settings → Chats → Chat backup → End-to-end encrypted backup → **use 64-digit key**. Save the key to the `key_file` path (it unlocks *all* your chats, so guard it).
 2. Copy `Android/media/com.whatsapp/WhatsApp/Databases/msgstore.db.crypt15` from the phone to `data/`.
-3. `cp config.example.toml config.toml`, then set `ANTHROPIC_API_KEY`.
+3. `cp config.example.toml config.toml`, then set `ANTHROPIC_API_KEY`. A workspace-scoped key is simplest; a user-scoped key (`sk-ant-usr-…`) also needs `ANTHROPIC_WORKSPACE_ID`.
 4. Run:
 
 ```sh

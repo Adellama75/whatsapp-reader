@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -42,7 +43,11 @@ def cmd_run(c: cfg.Config, args) -> None:
     from .render import render
     from .summarise import summarise
 
-    client = anthropic.Anthropic()
+    # User-scoped keys (sk-ant-usr-...) must name a workspace; workspace-scoped keys don't.
+    workspace = os.environ.get("ANTHROPIC_WORKSPACE_ID")
+    client = anthropic.Anthropic(
+        default_headers={"anthropic-workspace-id": workspace} if workspace else None
+    )
     digests = {g.label: summarise(client, c.model, c.effort, g.label, t) for g, t in transcripts.items()}
 
     out = c.data_dir / "digests" / f"{date.today()}.md"
