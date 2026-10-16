@@ -11,6 +11,9 @@ digests/
 config.toml
 .env
 
+# --- Go bridge build output ---
+bridge/wareader-bridge
+
 # --- Python ---
 __pycache__/
 *.pyc

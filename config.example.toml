@@ -1,27 +1,27 @@
 # Copy to config.toml (which is gitignored) and fill in.
 
 [paths]
-# Encrypted nightly backup copied from the phone:
-#   Android/media/com.whatsapp/WhatsApp/Databases/msgstore.db.crypt15
-backup = "data/msgstore.db.crypt15"
-# Optional: where `wareader fetch` copies it from (any scp source; here an SSH host alias).
-phone = "phone:/sdcard/Android/media/com.whatsapp/WhatsApp/Databases/msgstore.db.crypt15"
-# File containing your 64-digit end-to-end backup key. Treat it like a master password.
-key_file = "~/.config/wareader/backup.key"
 # Secret for HMAC pseudonyms. Created automatically on first run; lose it and every label changes.
 secret_file = "~/.config/wareader/pseudonym.secret"
-# Decrypted DB, run state and digests live here.
+# session.db (the linked-device keys) and live.db (the message archive) live here.
 data_dir = "data"
+# The bridge binary, built from bridge/ with Go.
+bridge = "bridge/wareader-bridge"
+
+[bridge]
+# How many days of backlog to ask the phone for when first linking (0 = WhatsApp's default, usually a few months
+# of recent chats). Only takes effect at `wareader link` time.
+history_days = 0
 
 [summariser]
 model = "claude-opus-5-5"
 effort = "low"
 
-# Only these groups are ever read. Find IDs with: wareader list-groups
+# Only these groups are ever stored or read. Find IDs with: wareader index
 [[groups]]
 jid = "120363000000000000@g.us"
 label = "Course chat"
-# pseudonymise = false   # only with the group's consent: real names from [names], text unscrubbed
+# pseudonymise = false   # only with the group's consent: profile names (overridden by [names]), text unscrubbed
 
 # [names]
-# "57153196953645" = "Alice"   # jid user (LID or number) -> display name
+# "57153196953645" = "Alice"   # sender ID as shown in the raw transcript -> display name

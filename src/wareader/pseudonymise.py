@@ -11,7 +11,7 @@ import re
 import secrets
 from pathlib import Path
 
-from .extract import Message
+from .store import Message
 
 MENTION = re.compile(r"@(\d{6,})")
 PHONE = re.compile(r"\+?\d[\d\s\-()]{8,}\d")
@@ -50,6 +50,8 @@ def scrub(secret: bytes, text: str) -> str:
 def transcript(secret: bytes | None, messages: list[Message], names: dict[str, str] | None = None) -> str:
     """Plain-text transcript, one line per message, reactions appended in brackets.
 
+    Quoted replies show the first 60 characters of the message they answer.
+
     Default: senders become HMAC labels and text is scrubbed. With `names` (a group
     whose members agreed to pseudonymise = false), senders and @mentions are shown
     by name, falling back to the raw ID, and text is left untouched.
@@ -69,6 +71,9 @@ def transcript(secret: bytes | None, messages: list[Message], names: dict[str, s
     for m in messages:
         when = m.sent_at.strftime("%a %d %b %H:%M")
         line = f"[{when}] {person(m.sender)}: {clean(m.text)}"
+        if m.quoted:
+            snippet = clean(m.quoted.replace("\n", " "))
+            line += f' (replying to "{snippet[:60]}{"…" if len(snippet) > 60 else ""}")'
         if m.reactions:
             line += " [" + ", ".join(f"{e} {person(u)}" for u, e in m.reactions) + "]"
         lines.append(line)

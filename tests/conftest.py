@@ -1,4 +1,4 @@
-"""Synthetic msgstore.db fixture. Never add real chat content to tests."""
+"""Synthetic live.db fixture, in the schema the bridge writes. Never add real chat content to tests."""
 
 import sqlite3
 from datetime import datetime, timezone
@@ -6,55 +6,50 @@ from datetime import datetime, timezone
 import pytest
 
 GROUP = "120363000000000001@g.us"
+OTHER = "120363000000000002@g.us"
+COMMUNITY = "120363000000000003@g.us"
+
+SCHEMA = """
+CREATE TABLE groups (jid TEXT PRIMARY KEY, subject TEXT NOT NULL, kind TEXT NOT NULL,
+    members INTEGER NOT NULL, parent_jid TEXT, updated_at INTEGER NOT NULL);
+CREATE TABLE messages (chat_jid TEXT NOT NULL, id TEXT NOT NULL, sender TEXT NOT NULL, from_me INTEGER NOT NULL,
+    ts INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, reply_to TEXT, PRIMARY KEY (chat_jid, id));
+CREATE TABLE reactions (chat_jid TEXT NOT NULL, target_id TEXT NOT NULL, sender TEXT NOT NULL,
+    emoji TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (chat_jid, target_id, sender));
+CREATE TABLE people (id TEXT PRIMARY KEY, push_name TEXT NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE status (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+"""
 
 
-def ms(*args) -> int:
-    return int(datetime(*args, tzinfo=timezone.utc).timestamp() * 1000)
+def ts(*args) -> int:
+    return int(datetime(*args, tzinfo=timezone.utc).timestamp())
 
 
 @pytest.fixture
 def db(tmp_path):
-    path = tmp_path / "msgstore.db"
+    path = tmp_path / "live.db"
     conn = sqlite3.connect(path)
-    conn.executescript(
-        """
-        CREATE TABLE jid (_id INTEGER PRIMARY KEY, user TEXT, server TEXT, raw_string TEXT);
-        CREATE TABLE chat (_id INTEGER PRIMARY KEY, jid_row_id INTEGER, subject TEXT);
-        CREATE TABLE message (_id INTEGER PRIMARY KEY, chat_row_id INTEGER, from_me INTEGER,
-                              sender_jid_row_id INTEGER, timestamp INTEGER, text_data TEXT);
-        CREATE TABLE message_add_on (_id INTEGER PRIMARY KEY, chat_row_id INTEGER, from_me INTEGER,
-                              sender_jid_row_id INTEGER, parent_message_row_id INTEGER, timestamp INTEGER);
-        CREATE TABLE message_add_on_reaction (message_add_on_row_id INTEGER PRIMARY KEY, reaction TEXT);
-        CREATE TABLE lid_display_name (lid_row_id INTEGER PRIMARY KEY, display_name TEXT);
-        """
-    )
-    conn.executemany("INSERT INTO jid VALUES (?,?,?,?)", [
-        (1, "120363000000000001", "g.us", GROUP),
-        (2, "447700900001", "s.whatsapp.net", "447700900001@s.whatsapp.net"),
-        (3, "120363000000000002", "g.us", "120363000000000002@g.us"),
-        (4, "57153196953645", "lid", "57153196953645@lid"),
+    conn.executescript(SCHEMA)
+    conn.executemany("INSERT INTO groups VALUES (?,?,?,?,?,?)", [
+        (GROUP, "Robotics Soc", "subgroup", 42, COMMUNITY, 1),
+        (OTHER, "Other", "group", 5, None, 1),
+        (COMMUNITY, "UCL Societies", "community", 300, None, 1),
     ])
-    conn.execute("INSERT INTO lid_display_name VALUES (4, '+44∙∙∙∙∙∙∙∙81')")
-    conn.executemany("INSERT INTO chat VALUES (?,?,?)", [(1, 1, "Robotics Soc"), (2, 3, "Other")])
-    conn.executemany("INSERT INTO message VALUES (?,?,?,?,?,?)", [
-        (1, 1, 0, 2, ms(2026, 10, 1, 9), "too old"),
-        (2, 1, 0, 2, ms(2026, 10, 3, 18), "Social Thursday 7pm"),
-        (3, 1, 1, 0, ms(2026, 10, 3, 19), "I'm in"),
-        (4, 1, 0, 2, ms(2026, 10, 3, 20), None),  # media, no text
-        (5, 2, 0, 2, ms(2026, 10, 3, 20), "not allowlisted"),
-        (6, 1, 0, 4, ms(2026, 10, 3, 21), "thanks @447700900001"),
+    conn.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)", [
+        (GROUP, "A", "447700900001", 0, ts(2026, 10, 1, 9), "text", "too old", None),
+        (GROUP, "B", "447700900001", 0, ts(2026, 10, 3, 18), "text", "Social Thursday 7pm", None),
+        (GROUP, "C", "", 1, ts(2026, 10, 3, 19), "text", "I'm in", "B"),
+        (GROUP, "D", "447700900001", 0, ts(2026, 10, 3, 20), "image", "[image] poster", None),
+        (OTHER, "E", "447700900001", 0, ts(2026, 10, 3, 20), "text", "not allowlisted", None),
+        (GROUP, "F", "57153196953645", 0, ts(2026, 10, 3, 21), "text", "thanks @447700900001", None),
     ])
-    # Reactions: a thumbs-up from me on msg 2, and a heart from the LID user that was then
-    # changed to a clap (latest wins), plus a removed reaction (empty) that must not show.
-    conn.executemany("INSERT INTO message_add_on VALUES (?,?,?,?,?,?)", [
-        (1, 1, 1, 0, 2, ms(2026, 10, 3, 18, 5)),
-        (2, 1, 0, 4, 2, ms(2026, 10, 3, 18, 6)),
-        (3, 1, 0, 4, 2, ms(2026, 10, 3, 18, 7)),
-        (4, 1, 0, 2, 3, ms(2026, 10, 3, 19, 1)),
+    # A thumbs-up from me on B, and a clap from the LID user (their latest reaction).
+    conn.executemany("INSERT INTO reactions VALUES (?,?,?,?,?)", [
+        (GROUP, "B", "", "👍", ts(2026, 10, 3, 18, 5)),
+        (GROUP, "B", "57153196953645", "👏", ts(2026, 10, 3, 18, 7)),
     ])
-    conn.executemany("INSERT INTO message_add_on_reaction VALUES (?,?)", [
-        (1, "👍"), (2, "❤️"), (3, "👏"), (4, ""),
-    ])
+    conn.execute("INSERT INTO people VALUES ('57153196953645', 'Bob', 1)")
+    conn.executemany("INSERT INTO status VALUES (?,?)", [("state", "connected"), ("since", str(ts(2026, 10, 3, 8)))])
     conn.commit()
     conn.close()
     return path

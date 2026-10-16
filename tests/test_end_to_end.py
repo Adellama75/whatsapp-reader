@@ -1,39 +1,23 @@
-"""Whole CLI flow: encrypt a synthetic DB as WhatsApp would, then decrypt → extract → digest.
+"""Whole CLI flow over a synthetic live.db. The Claude call is stubbed so this runs offline and free."""
 
-The Claude call is stubbed so this runs offline and free; everything else is real.
-"""
-
-import secrets
-import shutil
-import subprocess
+import sqlite3
 import sys
 
 import pytest
 
-from conftest import GROUP
+from conftest import GROUP, ts
 
 from wareader import cli
 from wareader.summarise import Event, GroupDigest
 
 
-def test_full_run(db, tmp_path, monkeypatch, capsys):
-    key = secrets.token_hex(32)
-    key_file = tmp_path / "backup.key"
-    key_file.write_text(" ".join(key[i : i + 4] for i in range(0, 64, 4)))  # spaced, like WhatsApp shows it
-    backup = tmp_path / "msgstore.db.crypt15"
-    phone = tmp_path / "phone" / "msgstore.db.crypt15"
-    phone.parent.mkdir()
-    subprocess.run(["waencrypt", key, str(db), str(phone)], check=True, capture_output=True)
-
-    data = tmp_path / "data"
+@pytest.fixture
+def run(db, tmp_path, monkeypatch, capsys):
     config = tmp_path / "config.toml"
     config.write_text(f"""
 [paths]
-backup = "{backup}"
-phone = "{phone}"
-key_file = "{key_file}"
 secret_file = "{tmp_path / 'pseudonym.secret'}"
-data_dir = "{data}"
+data_dir = "{db.parent}"
 
 [summariser]
 model = "claude-opus-5-5"
@@ -43,58 +27,57 @@ effort = "low"
 jid = "{GROUP}"
 label = "Robotics Soc"
 """)
-
-    sent = []
-
-    def fake_summarise(client, model, effort, group_label, transcript):
-        sent.append(transcript)
-        return GroupDigest(
-            nothing_important=False,
-            events=[Event(title="Social", when="Thursday 19:00", where=None)],
-            deadlines=[],
-            announcements=[],
-        )
-
-    monkeypatch.setattr("wareader.summarise.summarise", fake_summarise)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
 
-    def run(*args):
+    def _run(*args):
         monkeypatch.setattr(sys, "argv", ["wareader", "--config", str(config), *args])
         cli.main()
         return capsys.readouterr().out
 
-    if shutil.which("scp"):
-        assert "fetched" in run("fetch")
-    else:
-        shutil.copy(phone, backup)
-    assert "Robotics Soc" in run("--decrypt", "list-groups")
+    return _run
+
+
+def test_read_only_commands(run, db):
     assert run("groups").strip() == f"{GROUP}\tRobotics Soc"
-    assert (data / "msgstore.db").exists()
+    index = run("index")
+    assert "Robotics Soc\tsubgroup\t42\t5\t2026-10-03 21:00\tUCL Societies" in index and "\tyes" in index
+    assert (db.parent / "groups.tsv").exists()
+    assert run("status").startswith("bridge: connected since")
 
-    # Dry run sends nothing and leaves no state behind.
-    dry = run("run", "--dry-run", "--days", "3650")
-    assert "Social Thursday 7pm" in dry and "447700900001" not in dry
-    assert not sent and not (data / "state.json").exists()
-
-    out = run("run", "--days", "3650")
-    assert "**Social** (Thursday 19:00)" in out
-    assert len(sent) == 1 and "447700900001" not in sent[0] and "not allowlisted" not in sent[0]
-    assert (data / "state.json").exists()
-
-    # Second run: nothing new since the last run, so no API call and no clobbered digest.
-    assert "Nothing new" in run("run")
-    assert len(sent) == 1
-    digest = next((data / "digests").glob("*.md")).read_text()
-    assert "**Social** (Thursday 19:00)" in digest
-
-    # Stored digest is readable on demand.
-    assert "**Social** (Thursday 19:00)" in run("show")
-
-    # One-off summary of a single group: calls the API, leaves daily state alone.
-    state_before = (data / "state.json").read_text()
-    assert "**Social** (Thursday 19:00)" in run("summarise", "robotics soc", "--days", "3650")
-    assert len(sent) == 2
-    assert (data / "state.json").read_text() == state_before
-    assert "No messages" in run("summarise", GROUP, "--days", "1")
+    t = run("transcript", "robotics soc", "--since", "2026-10-02")
+    assert "Social Thursday 7pm" in t and "447700900001" not in t and "not allowlisted" not in t
+    assert "No messages" in run("transcript", GROUP, "--days", "1")
     with pytest.raises(SystemExit, match="not an allowlisted group"):
-        run("summarise", "chess club")
+        run("transcript", "chess club")
+
+
+def test_summarise_sends_only_pseudonymised_text(run, monkeypatch):
+    sent = []
+
+    def fake_summarise(client, model, effort, group_label, transcript):
+        sent.append(transcript)
+        return GroupDigest(nothing_important=False, events=[Event(title="Social", when="Thursday 19:00", where=None)],
+                           deadlines=[], announcements=[])
+
+    monkeypatch.setattr("wareader.summarise.summarise", fake_summarise)
+    dry = run("summarise", "Robotics Soc", "--since", "2026-10-02", "--dry-run")
+    assert "Social Thursday 7pm" in dry and not sent
+    out = run("summarise", "Robotics Soc", "--since", "2026-10-02")
+    assert "**Social** (Thursday 19:00)" in out
+    assert len(sent) == 1 and "447700900001" not in sent[0]
+
+
+def test_follow_prints_messages_as_they_arrive(run, db, monkeypatch):
+    # Nothing new on the first poll; then a message lands (as the bridge would write it) before the second.
+    polls = iter(range(10))
+
+    def arrive(_seconds):
+        if next(polls) == 0:
+            with sqlite3.connect(db) as conn:
+                conn.execute("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)",
+                             (GROUP, "G", "447700900001", 0, ts(2026, 10, 4, 9), "text", "room changed to 1.02", None))
+
+    monkeypatch.setattr("wareader.cli.time.sleep", arrive)
+    out = run("follow", "--polls", "2", "--interval", "0")
+    assert out.strip() == "[Robotics Soc] [Sun 04 Oct 09:00] Member-" + out.strip().split("Member-")[1]
+    assert "room changed to 1.02" in out and "Social Thursday" not in out

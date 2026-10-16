@@ -1,14 +1,13 @@
 [project]
 name = "wareader"
 version = "0.1.0"
-description = "Pseudonymised daily digests of WhatsApp group chats, from your own Android backup"
+description = "Live, pseudonymised transcripts and digests of WhatsApp group chats via a linked device"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic",
     "pydantic>=2",
-    "wa-crypt-tools",
 ]
 
 [project.scripts]

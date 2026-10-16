@@ -7,43 +7,36 @@ from pathlib import Path
 class Group:
     jid: str
     label: str
-    # False: real names from [names] (else the backup's masked number), text unscrubbed.
+    # False: real names (push names, overridden by [names]), text unscrubbed.
     # Only for groups where everyone has agreed; the digest for such a group is sent to the API as-is.
     pseudonymise: bool = True
 
 
 @dataclass
 class Config:
-    backup: Path
-    key_file: Path
     secret_file: Path
     data_dir: Path
     model: str
     effort: str
     groups: list[Group]
-    phone: str | None = None  # scp source, e.g. galangal:/sdcard/.../msgstore.db.crypt15
-    names: dict[str, str] = field(default_factory=dict)  # jid user (LID or number) -> display name
+    names: dict[str, str] = field(default_factory=dict)  # sender ID -> display name
+    bridge: Path = Path("bridge/wareader-bridge")
 
     @property
-    def decrypted_db(self) -> Path:
-        return self.data_dir / "msgstore.db"
-
-    @property
-    def state_file(self) -> Path:
-        return self.data_dir / "state.json"
+    def live_db(self) -> Path:
+        """Message archive written by the bridge; the CLI only ever reads it."""
+        return self.data_dir / "live.db"
 
 
 def load(path: Path) -> Config:
     raw = tomllib.loads(path.read_text())
     paths = raw["paths"]
     return Config(
-        backup=Path(paths["backup"]).expanduser(),
-        key_file=Path(paths["key_file"]).expanduser(),
         secret_file=Path(paths["secret_file"]).expanduser(),
         data_dir=Path(paths["data_dir"]).expanduser(),
         model=raw["summariser"]["model"],
         effort=raw["summariser"]["effort"],
         groups=[Group(**g) for g in raw.get("groups", [])],
-        phone=paths.get("phone"),
         names=raw.get("names", {}),
+        bridge=Path(paths.get("bridge", "bridge/wareader-bridge")).expanduser(),
     )

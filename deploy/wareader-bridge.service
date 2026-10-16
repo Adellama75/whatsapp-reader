@@ -1,0 +1,15 @@
+[Unit]
+Description=wareader bridge: linked WhatsApp device archiving allowlisted groups
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/dev/wareader
+ExecStart=%h/dev/wareader/bridge/wareader-bridge -data data -config config.toml
+Restart=on-failure
+RestartSec=30
+# Exit status 3 means "not paired" (or unlinked from the phone): run `wareader link` instead of retrying.
+RestartPreventExitStatus=3
+
+[Install]
+WantedBy=default.target
