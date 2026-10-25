@@ -1,0 +1,16 @@
+[Unit]
+Description=whatsapp-reader agent: group messages -> Claude Code (chat-agent) -> GitHub issues
+After=whatsapp-reader-bridge.service network-online.target
+Wants=whatsapp-reader-bridge.service
+
+[Service]
+WorkingDirectory=%h/dev/whatsapp-reader
+# claude, gh and uv live in ~/.local/bin; user services don't get a login PATH.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-%h/.config/whatsapp-reader/env
+ExecStart=%h/.local/bin/whatsapp-reader agent
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

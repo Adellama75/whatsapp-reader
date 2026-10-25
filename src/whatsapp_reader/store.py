@@ -21,6 +21,9 @@ class Message:
     quoted: str | None = None  # text of the message this one replies to, if stored
     reactions: list[tuple[str | None, str]] = field(default_factory=list)  # (sender, emoji)
     rowid: int = 0
+    id: str = ""  # WhatsApp message id (the #ID in transcripts with ids)
+    quoted_from_me: bool = False  # the quoted message is one of mine (e.g. the agent's own post)
+    file: str | None = None  # saved attachment, for groups with save_media = true
 
 
 @dataclass
@@ -45,10 +48,15 @@ def _ts(seconds: int | None) -> datetime | None:
     return datetime.fromtimestamp(seconds, tz=timezone.utc) if seconds else None
 
 
+def _has_file_column(conn: sqlite3.Connection) -> bool:
+    return "file" in {r[1] for r in conn.execute("PRAGMA table_info(messages)")}  # added by newer bridges
+
+
 def _messages(conn: sqlite3.Connection, where: str, params: tuple) -> list[Message]:
+    file = "m.file" if _has_file_column(conn) else "NULL"
     rows = conn.execute(
         f"""
-        SELECT m.rowid, m.chat_jid, m.ts, m.from_me, m.sender, m.text, m.kind, q.text
+        SELECT m.rowid, m.chat_jid, m.ts, m.from_me, m.sender, m.text, m.kind, q.text, m.id, q.from_me, {file}
         FROM messages m
         LEFT JOIN messages q ON q.chat_jid = m.chat_jid AND q.id = m.reply_to
         WHERE {where}
@@ -79,8 +87,11 @@ def _messages(conn: sqlite3.Connection, where: str, params: tuple) -> list[Messa
             quoted=quoted,
             reactions=reactions.get(rowid, []),
             rowid=rowid,
+            id=mid,
+            quoted_from_me=bool(q_from_me),
+            file=file,
         )
-        for rowid, chat, ts, from_me, sender, text, kind, quoted in rows
+        for rowid, chat, ts, from_me, sender, text, kind, quoted, mid, q_from_me, file in rows
     ]
 
 
@@ -91,14 +102,33 @@ def messages_since(db: Path, chat_jid: str, since: datetime) -> list[Message]:
 
 
 def messages_after(db: Path, chat_jid: str, rowid: int) -> list[Message]:
-    """Messages stored after a given row: the primitive `wareader follow` polls on."""
+    """Messages stored after a given row: the primitive `whatsapp-reader follow` polls on."""
     with _connect(db) as conn:
         return _messages(conn, "m.chat_jid = ? AND m.rowid > ?", (chat_jid, rowid))
+
+
+def messages_before(db: Path, chat_jid: str, rowid: int, n: int) -> list[Message]:
+    """The n messages stored before a given row, oldest first (context for `whatsapp-reader agent`)."""
+    with _connect(db) as conn:
+        rows = conn.execute(
+            "SELECT rowid FROM messages WHERE chat_jid = ? AND rowid < ? ORDER BY rowid DESC LIMIT ?",
+            (chat_jid, rowid, n),
+        ).fetchall()
+        if not rows:
+            return []
+        return _messages(conn, "m.chat_jid = ? AND m.rowid >= ? AND m.rowid < ?", (chat_jid, rows[-1][0], rowid))
 
 
 def last_rowid(db: Path) -> int:
     with _connect(db) as conn:
         return conn.execute("SELECT COALESCE(MAX(rowid), 0) FROM messages").fetchone()[0]
+
+
+def own_ids(db: Path) -> set[str]:
+    """This account's own LID and phone user parts, as the bridge recorded them on connect, so an
+    @-mention of the account owner renders as "Me" instead of a bare number."""
+    with _connect(db) as conn:
+        return {v for k, v in conn.execute("SELECT key, value FROM status WHERE key IN ('me_lid', 'me_pn')") if v}
 
 
 def push_names(db: Path, ids: set[str]) -> dict[str, str]:

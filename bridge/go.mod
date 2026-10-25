@@ -1,4 +1,4 @@
-module github.com/Adellama75/wareader/bridge
+module github.com/Adellama75/whatsapp-reader/bridge
 
 go 1.27.2
 

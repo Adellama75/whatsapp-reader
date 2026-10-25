@@ -12,7 +12,7 @@ config.toml
 .env
 
 # --- Go bridge build output ---
-bridge/wareader-bridge
+bridge/whatsapp-reader-bridge
 
 # --- Python ---
 __pycache__/
@@ -20,3 +20,5 @@ __pycache__/
 .venv/
 .pytest_cache/
 *.egg-info/
+# site-specific bridge additions (see `plugins` in bridge/main.go)
+bridge/local_*.go

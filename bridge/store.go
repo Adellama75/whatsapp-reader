@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -13,7 +14,7 @@ import (
 //
 // It holds only allowlisted groups' messages; see Allowlist. The groups table
 // is a directory of every joined group (metadata, no content) so that
-// `wareader index` can help pick which groups to ask for consent.
+// `whatsapp-reader index` can help pick which groups to ask for consent.
 type Store struct{ db *sql.DB }
 
 const schema = `
@@ -34,6 +35,11 @@ CREATE TABLE IF NOT EXISTS people (
 CREATE TABLE IF NOT EXISTS status (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `
 
+// migrations add columns that archives from older bridges lack; "duplicate column" errors are expected.
+var migrations = []string{
+	`ALTER TABLE messages ADD COLUMN file TEXT`, // saved attachment path, for groups with save_media = true
+}
+
 func OpenStore(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
@@ -42,6 +48,11 @@ func OpenStore(path string) (*Store, error) {
 	db.SetMaxOpenConns(1) // SQLite + WAL: one writer, readers (the CLI) use their own connections
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("init schema: %w", err)
+	}
+	for _, m := range migrations {
+		if _, err := db.Exec(m); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return nil, fmt.Errorf("migrate schema: %w", err)
+		}
 	}
 	return &Store{db}, nil
 }
@@ -97,10 +108,14 @@ func (s *Store) PutMessage(ctx context.Context, m Msg) error {
 	return err
 }
 
-func (s *Store) EditMessage(ctx context.Context, chat, id, kind, text string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE messages SET kind = ?, text = ? WHERE chat_jid = ? AND id = ?`,
+// EditMessage replaces the text of a stored message; returns how many rows matched (0: unknown ID).
+func (s *Store) EditMessage(ctx context.Context, chat, id, kind, text string) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE messages SET kind = ?, text = ? WHERE chat_jid = ? AND id = ?`,
 		kind, text, chat, id)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // DeleteMessage honours "delete for everyone": the message and its reactions go.
@@ -135,6 +150,12 @@ func (s *Store) PutPushName(ctx context.Context, id, name string) error {
 		INSERT INTO people VALUES (?,?,?)
 		ON CONFLICT (id) DO UPDATE SET push_name = excluded.push_name, updated_at = excluded.updated_at`,
 		id, name, time.Now().Unix())
+	return err
+}
+
+// SetFile records where an attachment of a stored message was saved.
+func (s *Store) SetFile(ctx context.Context, chat, id, path string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE messages SET file = ? WHERE chat_jid = ? AND id = ?`, path, chat, id)
 	return err
 }
 

@@ -17,15 +17,18 @@ type Allowlist struct {
 	path string
 	mu   sync.Mutex
 	jids map[string]bool
-	mod  time.Time
-	seen time.Time
+	// media is the set of groups with save_media = true: their images and documents are downloaded.
+	media map[string]bool
+	mod   time.Time
+	seen  time.Time
 	// HistoryDays is the [bridge] history_days hint sent to the phone at pairing.
 	HistoryDays uint32
 }
 
 type configFile struct {
 	Groups []struct {
-		JID string `toml:"jid"`
+		JID       string `toml:"jid"`
+		SaveMedia bool   `toml:"save_media"`
 	} `toml:"groups"`
 	Bridge struct {
 		HistoryDays uint32 `toml:"history_days"`
@@ -51,9 +54,14 @@ func (a *Allowlist) reload() error {
 		return err
 	}
 	jids := make(map[string]bool, len(c.Groups))
+	media := map[string]bool{}
 	for _, g := range c.Groups {
 		jids[g.JID] = true
+		if g.SaveMedia {
+			media[g.JID] = true
+		}
 	}
+	a.media = media
 	a.jids, a.mod, a.HistoryDays = jids, st.ModTime(), c.Bridge.HistoryDays
 	return nil
 }
@@ -65,4 +73,11 @@ func (a *Allowlist) Allows(jid string) bool {
 		_ = a.reload() // keep the last good list if the file is mid-edit
 	}
 	return a.jids[jid]
+}
+
+// SavesMedia reports whether an allowlisted group opted into saving attachments.
+func (a *Allowlist) SavesMedia(jid string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.media[jid]
 }

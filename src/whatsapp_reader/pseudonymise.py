@@ -11,6 +11,8 @@ import re
 import secrets
 from pathlib import Path
 
+from typing import Callable
+
 from .store import Message
 
 MENTION = re.compile(r"@(\d{6,})")
@@ -47,10 +49,17 @@ def scrub(secret: bytes, text: str) -> str:
     )
 
 
-def transcript(secret: bytes | None, messages: list[Message], names: dict[str, str] | None = None) -> str:
-    """Plain-text transcript, one line per message, reactions appended in brackets.
+def transcript(secret: bytes | None, messages: list[Message], names: dict[str, str] | None = None,
+               me: set[str] = frozenset(), to_claude: Callable[[Message], bool] | None = None,
+               ids: bool = False) -> str:
+    """Plain-text transcript: a `[Day dd Mon HH:MM]` head per message, continuation lines indented
+    (so a reader that goes line by line can't mistake them for new messages), reactions appended
+    in brackets.
 
-    Quoted replies show the first 60 characters of the message they answer.
+    Quoted replies show the first 60 characters of the message they answer. A saved attachment is
+    listed as `[file: path]`. With `ids` the head carries the message id (`[... #ID]`) for
+    replying to a specific message; messages `to_claude` picks are marked `[to claude]`. IDs in `me`
+    (this account) render as "Me", also inside @mentions.
 
     Default: senders become HMAC labels and text is scrubbed. With `names` (a group
     whose members agreed to pseudonymise = false), senders and @mentions are shown
@@ -58,9 +67,10 @@ def transcript(secret: bytes | None, messages: list[Message], names: dict[str, s
     """
     if names is None:
         assert secret is not None
-        who = lambda u: label(secret, u)  # noqa: E731
-        clean = lambda t: scrub(secret, t)  # noqa: E731
+        who = lambda u: "Me" if u in me else label(secret, u)  # noqa: E731
+        clean = lambda t: scrub(secret, MENTION.sub(lambda m: "@Me" if m.group(1) in me else m.group(), t))  # noqa: E731
     else:
+        names = {**names, **{u: "Me" for u in me}}
         who = lambda u: names.get(u, u)  # noqa: E731
         clean = lambda t: MENTION.sub(lambda m: "@" + names.get(m.group(1), m.group(1)), t)  # noqa: E731
 
@@ -70,11 +80,18 @@ def transcript(secret: bytes | None, messages: list[Message], names: dict[str, s
     lines = []
     for m in messages:
         when = m.sent_at.strftime("%a %d %b %H:%M")
-        line = f"[{when}] {person(m.sender)}: {clean(m.text)}"
+        head = f"[{when}{f' #{m.id}' if ids and m.id else ''}] {person(m.sender)}:"
+        if to_claude and to_claude(m):
+            head += " [to claude]"
+        body = clean(m.text)
         if m.quoted:
             snippet = clean(m.quoted.replace("\n", " "))
-            line += f' (replying to "{snippet[:60]}{"…" if len(snippet) > 60 else ""}")'
+            body += f' (replying to "{snippet[:60]}{"…" if len(snippet) > 60 else ""}")'
+        if m.file:
+            body += f" [file: {m.file}]"
         if m.reactions:
-            line += " [" + ", ".join(f"{e} {person(u)}" for u, e in m.reactions) + "]"
-        lines.append(line)
+            body += " [" + ", ".join(f"{e} {person(u)}" for u, e in m.reactions) + "]"
+        first, *rest = body.split("\n")
+        lines.append(f"{head} {first}")
+        lines.extend("    " + r for r in rest)
     return "\n".join(lines)

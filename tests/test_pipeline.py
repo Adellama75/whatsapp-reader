@@ -4,10 +4,10 @@ from datetime import date, datetime, timezone
 
 from conftest import COMMUNITY, GROUP
 
-from wareader.pseudonymise import label, scrub, transcript
-from wareader.render import render
-from wareader.store import group_index, messages_after, messages_since, push_names, status
-from wareader.summarise import Deadline, Event, GroupDigest
+from whatsapp_reader.pseudonymise import label, scrub, transcript
+from whatsapp_reader.render import render
+from whatsapp_reader.store import group_index, messages_after, messages_since, push_names, status
+from whatsapp_reader.summarise import Deadline, Event, GroupDigest
 
 SECRET = b"test-secret-not-real"
 SINCE = datetime(2026, 10, 2, tzinfo=timezone.utc)
@@ -102,3 +102,18 @@ def test_named_transcript_uses_names_and_skips_scrubbing(db):
     assert "Bob: thanks @Alice" in t
     assert "Alice: Social Thursday 7pm [👍 Me, 👏 Bob]" in t
     assert "Member-" not in t
+
+
+def test_own_ids_come_from_the_bridge_status(db):
+    import sqlite3
+    from whatsapp_reader.store import own_ids
+    assert own_ids(db) == set()
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO status VALUES ('me_lid', '100000000000001')")
+    assert own_ids(db) == {"100000000000001"}
+
+
+def test_messages_carry_id_and_quoted_author(db):
+    msgs = messages_since(db, GROUP, SINCE)
+    assert msgs[1].id == "C" and msgs[1].quoted == "Social Thursday 7pm" and not msgs[1].quoted_from_me
+    assert all(m.file is None for m in msgs)  # archive from a bridge without the file column

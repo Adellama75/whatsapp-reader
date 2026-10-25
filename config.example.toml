@@ -2,26 +2,46 @@
 
 [paths]
 # Secret for HMAC pseudonyms. Created automatically on first run; lose it and every label changes.
-secret_file = "~/.config/wareader/pseudonym.secret"
+secret_file = "~/.config/whatsapp-reader/pseudonym.secret"
 # session.db (the linked-device keys) and live.db (the message archive) live here.
 data_dir = "data"
 # The bridge binary, built from bridge/ with Go.
-bridge = "bridge/wareader-bridge"
+bridge = "bridge/whatsapp-reader-bridge"
 
 [bridge]
 # How many days of backlog to ask the phone for when first linking (0 = WhatsApp's default, usually a few months
-# of recent chats). Only takes effect at `wareader link` time.
+# of recent chats). Only takes effect at `whatsapp-reader link` time.
 history_days = 0
 
 [summariser]
 model = "claude-opus-5-5"
 effort = "low"
 
-# Only these groups are ever stored or read. Find IDs with: wareader index
+# Only these groups are ever stored or read. Find IDs with: whatsapp-reader index
 [[groups]]
 jid = "120363000000000000@g.us"
 label = "Course chat"
 # pseudonymise = false   # only with the group's consent: profile names (overridden by [names]), text unscrubbed
+# save_media = true      # only with the group's consent: the bridge saves images/documents (<= 10 MB) to
+#                        # data/attachments so `whatsapp-reader agent` can read them
 
 # [names]
 # "57153196953645" = "Alice"   # sender ID as shown in the raw transcript -> display name
+
+# Optional: `whatsapp-reader agent`. New messages in one group start a headless Claude Code run that keeps a
+# GitHub repo's issues in step with the chat (needs `claude` and `gh` logged in on this machine).
+# The agent is chat-agent (https://github.com/Adellama75/chat-agent, cloned next to this repo).
+# [agent]
+# group = "Project team"                       # an allowlisted group (pseudonymise = false makes sense here)
+# repo = "owner/name"
+# workdir = "~/dev/name"                       # a clone of that repo; Claude reads it for context, never writes
+# model = "claude-sonnet-5-5"
+# debounce = 90                                # seconds of quiet before a run
+# max_wait = 300                               # run anyway this long after the first unprocessed message
+# context = 40                                 # earlier messages shown as context
+# prefix = "🤖"                                 # messages starting with this are the agent's own and are skipped
+# names = ["claude", "bot"]                     # it answers when addressed by one of these
+# max_budget_usd = 0                           # per-run cap for claude -p (0 = none)
+# brief = "We build X. docs/plan.md is the plan."  # who the team is and where to look in the repo
+# [agent.github_users]
+# "Alice" = "alice-gh"                         # chat display name -> GitHub login, for --assignee

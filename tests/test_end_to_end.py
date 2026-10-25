@@ -7,8 +7,8 @@ import pytest
 
 from conftest import GROUP, ts
 
-from wareader import cli
-from wareader.summarise import Event, GroupDigest
+from whatsapp_reader import cli
+from whatsapp_reader.summarise import Event, GroupDigest
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ label = "Robotics Soc"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
 
     def _run(*args):
-        monkeypatch.setattr(sys, "argv", ["wareader", "--config", str(config), *args])
+        monkeypatch.setattr(sys, "argv", ["whatsapp-reader", "--config", str(config), *args])
         cli.main()
         return capsys.readouterr().out
 
@@ -59,7 +59,7 @@ def test_summarise_sends_only_pseudonymised_text(run, monkeypatch):
         return GroupDigest(nothing_important=False, events=[Event(title="Social", when="Thursday 19:00", where=None)],
                            deadlines=[], announcements=[])
 
-    monkeypatch.setattr("wareader.summarise.summarise", fake_summarise)
+    monkeypatch.setattr("whatsapp_reader.summarise.summarise", fake_summarise)
     dry = run("summarise", "Robotics Soc", "--since", "2026-10-02", "--dry-run")
     assert "Social Thursday 7pm" in dry and not sent
     out = run("summarise", "Robotics Soc", "--since", "2026-10-02")
@@ -77,7 +77,7 @@ def test_follow_prints_messages_as_they_arrive(run, db, monkeypatch):
                 conn.execute("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)",
                              (GROUP, "G", "447700900001", 0, ts(2026, 10, 4, 9), "text", "room changed to 1.02", None))
 
-    monkeypatch.setattr("wareader.cli.time.sleep", arrive)
+    monkeypatch.setattr("whatsapp_reader.cli.time.sleep", arrive)
     out = run("follow", "--polls", "2", "--interval", "0")
-    assert out.strip() == "[Robotics Soc] [Sun 04 Oct 09:00] Member-" + out.strip().split("Member-")[1]
+    assert out.strip() == "[Robotics Soc] [Sun 04 Oct 09:00 #G] Member-" + out.strip().split("Member-")[1]  # message ids, as follow prints them
     assert "room changed to 1.02" in out and "Social Thursday" not in out

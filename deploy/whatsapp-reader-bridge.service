@@ -1,0 +1,15 @@
+[Unit]
+Description=whatsapp-reader bridge: linked WhatsApp device archiving allowlisted groups
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/dev/whatsapp-reader
+ExecStart=%h/dev/whatsapp-reader/bridge/whatsapp-reader-bridge -data data -config config.toml
+Restart=on-failure
+RestartSec=30
+# Exit status 3 means "not paired" (or unlinked from the phone): run `whatsapp-reader link` instead of retrying.
+RestartPreventExitStatus=3
+
+[Install]
+WantedBy=default.target

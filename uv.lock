@@ -43,6 +43,16 @@ wheels = [
 ]
 
 [[package]]
+name = "chatagent"
+version = "0.1.0"
+source = { editable = "../chat-agent" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest" }]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -394,11 +404,12 @@ wheels = [
 ]
 
 [[package]]
-name = "wareader"
+name = "whatsapp-reader"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "chatagent" },
     { name = "pydantic" },
 ]
 
@@ -410,6 +421,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic" },
+    { name = "chatagent", editable = "../chat-agent" },
     { name = "pydantic", specifier = ">=2" },
 ]
 

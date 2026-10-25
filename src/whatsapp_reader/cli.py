@@ -6,13 +6,14 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from . import config as cfg
-from .pseudonymise import load_or_create_secret, transcript
+from .pseudonymise import MENTION, load_or_create_secret, transcript
 from .store import (
     Message,
     group_index,
     last_rowid,
     messages_after,
     messages_since,
+    own_ids,
     push_names,
     status,
 )
@@ -28,12 +29,14 @@ def _client():
     )
 
 
-def _transcript(c: cfg.Config, g: cfg.Group, msgs: list[Message]) -> str:
+def _transcript(c: cfg.Config, g: cfg.Group, msgs: list[Message], to_claude=None, ids: bool = False) -> str:
+    me = own_ids(c.live_db)
     if g.pseudonymise:
-        return transcript(load_or_create_secret(c.secret_file), msgs)
+        return transcript(load_or_create_secret(c.secret_file), msgs, me=me, to_claude=to_claude, ids=ids)
     users = {m.sender for m in msgs if m.sender} | {u for m in msgs for u, _ in m.reactions if u}
+    users |= {u for m in msgs for t in (m.text, m.quoted or "") for u in MENTION.findall(t)}  # @-mentioned, maybe silent
     names = push_names(c.live_db, users) | c.names  # config.toml [names] wins over profile names
-    return transcript(None, msgs, names=names)
+    return transcript(None, msgs, names=names, me=me, to_claude=to_claude, ids=ids)
 
 
 def _find_group(c: cfg.Config, name: str) -> cfg.Group:
@@ -81,7 +84,7 @@ def cmd_transcript(c: cfg.Config, args) -> None:
     if not msgs:
         print(f"No messages in {g.label} since {_since(args):%Y-%m-%d %H:%M}.")
         return
-    print(_transcript(c, g, msgs))
+    print(_transcript(c, g, msgs, ids=args.ids))
 
 
 def cmd_summarise(c: cfg.Config, args) -> None:
@@ -103,20 +106,38 @@ def cmd_summarise(c: cfg.Config, args) -> None:
 
 
 def cmd_follow(c: cfg.Config, args) -> None:
-    """Stream new messages as the bridge stores them (like `tail -f`)."""
-    groups = [_find_group(c, args.group)] if args.group else c.groups
-    cursor = last_rowid(c.live_db)
-    polls = 0
-    while args.polls is None or polls < args.polls:
-        polls += 1
-        for g in groups:
-            new = messages_after(c.live_db, g.jid, cursor)
-            if new:
-                cursor = max(cursor, new[-1].rowid)
-                prefix = "" if args.group else f"[{g.label}] "
-                for line in _transcript(c, g, new).splitlines():
-                    print(prefix + line, flush=True)
-        time.sleep(args.interval)
+    """Stream bursts of new messages, with ids, for a coordinator session (like `tail -f`); see
+    chatagent.follow. Following the [agent] group keeps data/coordinator.alive fresh, so the agent
+    service leaves replies to whoever reads this."""
+    from chatagent import follow
+
+    from .chat import WhatsAppChat
+
+    prefix = c.agent.prefix if c.agent else ""
+    chats = [WhatsAppChat(c, g, prefix, _transcript) for g in ([_find_group(c, args.group)] if args.group else c.groups)]
+    agent_chat = next((x for x in chats if c.agent and c.agent.group.lower() in (x.g.label.lower(), x.g.jid.lower())), None)
+    follow(chats, c.agent, agent_chat=agent_chat, after=args.after, interval=args.interval, polls=args.polls,
+           prefix_labels=not args.group)
+
+
+def cmd_agent(c: cfg.Config, args) -> None:
+    """Watch the [agent] group and run Claude Code on each burst of new messages (chat-agent)."""
+    from chatagent import AgentLoop
+
+    from .chat import WhatsAppChat
+
+    if c.agent is None:
+        sys.exit("no [agent] section in config.toml")
+    g = next((g for g in c.groups if c.agent.group.lower() in (g.label.lower(), g.jid.lower())), None)
+    if g is None:
+        sys.exit(f"[agent] group '{c.agent.group}' is not allowlisted")
+    loop = AgentLoop(c.agent, WhatsAppChat(c, g, c.agent.prefix, _transcript))
+    if args.once or args.dry_run:
+        out = loop.once(dry_run=args.dry_run)
+        if out:
+            print(out)
+        return
+    loop.serve(interval=args.interval, polls=args.polls)
 
 
 def cmd_status(c: cfg.Config, args) -> None:
@@ -132,7 +153,7 @@ def cmd_status(c: cfg.Config, args) -> None:
 
 def cmd_link(c: cfg.Config, args) -> None:
     """Pair this machine as a linked device: shows a QR code to scan with the phone."""
-    unit = "wareader-bridge"
+    unit = "whatsapp-reader-bridge"
     running = subprocess.run(["systemctl", "--user", "is-active", "--quiet", unit]).returncode == 0
     if running:
         subprocess.run(["systemctl", "--user", "stop", unit], check=True)
@@ -148,8 +169,10 @@ def cmd_link(c: cfg.Config, args) -> None:
 def main() -> None:
     import argparse
 
-    p = argparse.ArgumentParser(prog="wareader")
-    p.add_argument("--config", type=Path, default=Path("config.toml"))
+    p = argparse.ArgumentParser(prog="whatsapp-reader")
+    # WHATSAPP_READER_CONFIG lets subprocesses (tools Claude runs under `whatsapp-reader agent`) find the same config
+    # from any working directory.
+    p.add_argument("--config", type=Path, default=Path(os.environ.get("WHATSAPP_READER_CONFIG", "config.toml")))
     sub = p.add_subparsers(required=True)
 
     sub.add_parser("groups", help="print the allowlisted groups").set_defaults(fn=cmd_groups)
@@ -167,6 +190,7 @@ def main() -> None:
     t = sub.add_parser("transcript", help="print the raw pseudonymised messages of one allowlisted group")
     t.add_argument("group", help="label or JID, as in config.toml")
     period(t)
+    t.add_argument("--ids", action="store_true", help="show message ids (#ID)")
     t.set_defaults(fn=cmd_transcript)
 
     s = sub.add_parser("summarise", help="digest of one allowlisted group (calls the Claude API)")
@@ -177,11 +201,26 @@ def main() -> None:
 
     f = sub.add_parser("follow", help="stream new messages live (all allowlisted groups, or one)")
     f.add_argument("group", nargs="?", help="label or JID; default: every allowlisted group")
+    f.add_argument("--after", type=int, help="start after this archive rowid (default: where the last follow stopped)")
     f.add_argument("--interval", type=float, default=2, help="seconds between polls")
     f.add_argument("--polls", type=int, help="stop after this many polls (default: run until Ctrl-C)")
     f.set_defaults(fn=cmd_follow)
 
+    a = sub.add_parser("agent", help="new messages in the [agent] group -> Claude Code -> GitHub issues + replies")
+    a.add_argument("--once", action="store_true", help="process what is pending now, then exit")
+    a.add_argument("--dry-run", action="store_true", help="print the prompts Claude would get, change nothing")
+    a.add_argument("--interval", type=float, default=2, help="seconds between polls")
+    a.add_argument("--polls", type=int, help="stop after this many polls (default: run until Ctrl-C)")
+    a.set_defaults(fn=cmd_agent)
+
+    from . import plugins
+
+    for plugin in plugins.load():
+        if hasattr(plugin, "register"):
+            plugin.register(sub)
+
     args = p.parse_args()
+    os.environ["WHATSAPP_READER_CONFIG"] = str(args.config.resolve())
     c = cfg.load(args.config)
     try:
         args.fn(c, args)

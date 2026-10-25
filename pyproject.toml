@@ -1,5 +1,5 @@
 [project]
-name = "wareader"
+name = "whatsapp-reader"
 version = "0.1.0"
 description = "Live, pseudonymised transcripts and digests of WhatsApp group chats via a linked device"
 readme = "README.md"
@@ -8,10 +8,11 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic",
     "pydantic>=2",
+    "chatagent",
 ]
 
 [project.scripts]
-wareader = "wareader.cli:main"
+whatsapp-reader = "whatsapp_reader.cli:main"
 
 [dependency-groups]
 dev = ["pytest"]
@@ -19,3 +20,6 @@ dev = ["pytest"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv.sources]
+chatagent = { path = "../chat-agent", editable = true }  # clone https://github.com/Adellama75/chat-agent next to this repo
