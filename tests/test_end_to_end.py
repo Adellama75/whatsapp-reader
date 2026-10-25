@@ -81,3 +81,38 @@ def test_follow_prints_messages_as_they_arrive(run, db, monkeypatch):
     out = run("follow", "--polls", "2", "--interval", "0")
     assert out.strip() == "[Robotics Soc] [Sun 04 Oct 09:00 #G] Member-" + out.strip().split("Member-")[1]  # message ids, as follow prints them
     assert "room changed to 1.02" in out and "Social Thursday" not in out
+
+
+def test_download_asks_the_bridge_and_copies_the_file(run, db, tmp_path, monkeypatch):
+    conn = sqlite3.connect(db)
+    conn.execute("ALTER TABLE messages ADD COLUMN file TEXT")
+    conn.commit()
+    saved = tmp_path / "attachments" / "D_image.jpg"
+    requests = db.parent / "requests"
+
+    def fake_bridge(_):  # what the bridge does with data/requests/D.want while the CLI waits
+        assert (requests / "D.want").read_text().strip() == GROUP
+        saved.parent.mkdir(exist_ok=True)
+        saved.write_bytes(b"\xff\xd8 poster")
+        conn.execute("UPDATE messages SET file = ? WHERE id = 'D'", (str(saved),))
+        conn.commit()
+        (requests / "D.want").unlink()
+
+    monkeypatch.setattr(cli.time, "sleep", fake_bridge)
+    out = tmp_path / "poster.jpg"
+    assert run("download", "Robotics Soc", "D", "-o", str(out)).strip() == str(out)
+    assert out.read_bytes() == b"\xff\xd8 poster"
+    assert run("download", "Robotics Soc", "D").strip() == str(saved)  # already saved: no new request
+    assert not (requests / "D.want").exists()
+
+    with pytest.raises(SystemExit, match="is a text, not an attachment"):
+        run("download", "Robotics Soc", "B")
+    with pytest.raises(SystemExit, match="no message E in Robotics Soc"):
+        run("download", "Robotics Soc", "E")  # E is in a group that isn't allowlisted
+    with pytest.raises(SystemExit, match="not a message id"):
+        run("download", "Robotics Soc", "../D")
+
+    saved.unlink()
+    monkeypatch.setattr(cli.time, "sleep", lambda _: (requests / "D.err").write_text("the phone did not resend it\n"))
+    with pytest.raises(SystemExit, match="download failed: the phone did not resend it"):
+        run("download", "Robotics Soc", "D")

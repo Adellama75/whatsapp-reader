@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS status (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
 // migrations add columns that archives from older bridges lack; "duplicate column" errors are expected.
 var migrations = []string{
-	`ALTER TABLE messages ADD COLUMN file TEXT`, // saved attachment path, for groups with save_media = true
+	`ALTER TABLE messages ADD COLUMN file TEXT`,  // saved attachment path, for groups with save_media = true
+	`ALTER TABLE messages ADD COLUMN media BLOB`, // attachment keys (see mediaOf), to download it later
 }
 
 func OpenStore(path string) (*Store, error) {
@@ -92,19 +93,22 @@ type Msg struct {
 	ChatJID, ID, Sender, Kind, Text, ReplyTo string
 	FromMe                                   bool
 	At                                       time.Time
+	Media                                    []byte // see mediaOf; nil for messages without an attachment
 }
 
-// PutMessage stores a message, or updates its text if it was edited.
+// PutMessage stores a message, or updates its text if it was edited (and its attachment keys, if it
+// came again with them: see serveDownloads).
 func (s *Store) PutMessage(ctx context.Context, m Msg) error {
 	var reply any
 	if m.ReplyTo != "" {
 		reply = m.ReplyTo
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO messages (chat_jid, id, sender, from_me, ts, kind, text, reply_to)
-		VALUES (?,?,?,?,?,?,?,?)
-		ON CONFLICT (chat_jid, id) DO UPDATE SET kind = excluded.kind, text = excluded.text`,
-		m.ChatJID, m.ID, m.Sender, m.FromMe, m.At.Unix(), m.Kind, m.Text, reply)
+		INSERT INTO messages (chat_jid, id, sender, from_me, ts, kind, text, reply_to, media)
+		VALUES (?,?,?,?,?,?,?,?,?)
+		ON CONFLICT (chat_jid, id) DO UPDATE SET kind = excluded.kind, text = excluded.text,
+			media = COALESCE(excluded.media, media)`,
+		m.ChatJID, m.ID, m.Sender, m.FromMe, m.At.Unix(), m.Kind, m.Text, reply, m.Media)
 	return err
 }
 
@@ -157,6 +161,14 @@ func (s *Store) PutPushName(ctx context.Context, id, name string) error {
 func (s *Store) SetFile(ctx context.Context, chat, id, path string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE messages SET file = ? WHERE chat_jid = ? AND id = ?`, path, chat, id)
 	return err
+}
+
+// MediaOf returns the attachment keys of a stored message (nil if it has none or came before the
+// bridge kept them) and who sent it. sql.ErrNoRows: no such message.
+func (s *Store) MediaOf(ctx context.Context, chat, id string) (media []byte, sender string, fromMe bool, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT media, sender, from_me FROM messages WHERE chat_jid = ? AND id = ?`,
+		chat, id).Scan(&media, &sender, &fromMe)
+	return
 }
 
 func (s *Store) SetStatus(ctx context.Context, key, value string) error {

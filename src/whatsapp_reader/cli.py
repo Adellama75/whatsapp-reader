@@ -1,4 +1,6 @@
 import os
+import re
+import shutil
 import subprocess
 import sys
 import time
@@ -9,6 +11,7 @@ from . import config as cfg
 from .pseudonymise import MENTION, load_or_create_secret, transcript
 from .store import (
     Message,
+    attachment,
     group_index,
     last_rowid,
     messages_after,
@@ -140,6 +143,42 @@ def cmd_agent(c: cfg.Config, args) -> None:
     loop.serve(interval=args.interval, polls=args.polls)
 
 
+MEDIA_KINDS = ("image", "document", "video", "audio")
+
+
+def cmd_download(c: cfg.Config, args) -> None:
+    """Save the attachment of one message (an id from `transcript --ids`): the bridge downloads it on
+    request into data/attachments, asking the phone for the keys of messages it stored without them."""
+    g = _find_group(c, args.group)
+    if not re.fullmatch(r"[0-9A-Za-z]+", args.id):
+        sys.exit(f"'{args.id}' is not a message id")
+    found = attachment(c.live_db, g.jid, args.id)
+    if found is None:
+        sys.exit(f"no message {args.id} in {g.label}")
+    kind, file = found
+    if kind not in MEDIA_KINDS:
+        sys.exit(f"message {args.id} is a {kind}, not an attachment")
+    if not (file and Path(file).exists()):
+        requests = c.data_dir / "requests"
+        requests.mkdir(mode=0o700, exist_ok=True)
+        want, err = requests / f"{args.id}.want", requests / f"{args.id}.err"
+        err.unlink(missing_ok=True)
+        want.write_text(g.jid + "\n")
+        deadline = time.monotonic() + args.timeout
+        while not (file and Path(file).exists()):
+            if err.exists():
+                sys.exit(f"download failed: {err.read_text().strip()}")
+            if time.monotonic() > deadline:
+                want.unlink(missing_ok=True)
+                sys.exit("timed out waiting for the bridge (is it running? see `whatsapp-reader status`)")
+            time.sleep(args.interval)
+            _, file = attachment(c.live_db, g.jid, args.id)
+    if args.output:
+        shutil.copyfile(file, args.output)
+        file = str(args.output)
+    print(file)
+
+
 def cmd_status(c: cfg.Config, args) -> None:
     """Is the bridge connected, and how fresh is each allowlisted group?"""
     state, per_group = status(c.live_db, [g.jid for g in c.groups])
@@ -205,6 +244,14 @@ def main() -> None:
     f.add_argument("--interval", type=float, default=2, help="seconds between polls")
     f.add_argument("--polls", type=int, help="stop after this many polls (default: run until Ctrl-C)")
     f.set_defaults(fn=cmd_follow)
+
+    d = sub.add_parser("download", help="save the attachment (image, document, video, voice note) of one message")
+    d.add_argument("group", help="label or JID, as in config.toml")
+    d.add_argument("id", help="message id, as shown by `transcript --ids`")
+    d.add_argument("-o", "--output", type=Path, help="copy it here (default: just print where data/attachments has it)")
+    d.add_argument("--timeout", type=float, default=120, help="seconds to wait for the bridge (default 120)")
+    d.add_argument("--interval", type=float, default=1, help=argparse.SUPPRESS)
+    d.set_defaults(fn=cmd_download)
 
     a = sub.add_parser("agent", help="new messages in the [agent] group -> Claude Code -> GitHub issues + replies")
     a.add_argument("--once", action="store_true", help="process what is pending now, then exit")

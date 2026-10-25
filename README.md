@@ -13,7 +13,7 @@ phone ─(WhatsApp multi-device)─▶ bridge ─▶ data/live.db ─▶ whatsap
 2. **Pseudonymise:** senders become `Member-xxxx` (HMAC-SHA256 with a local secret); phone numbers, emails and @mentions are scrubbed. Reactions and quoted replies stay attached to the message they answer.
 3. **Read:** `whatsapp-reader transcript` prints the archive without touching any API. `whatsapp-reader summarise` sends the pseudonymised text to Claude and prints structured events, deadlines and announcements. `whatsapp-reader follow` streams new messages live.
 
-The bridge only listens: it never posts and never marks anything read. Media is not downloaded (an image becomes `[image] caption`) unless a group that has agreed sets `save_media = true`. It is an unofficial client, so it sits outside WhatsApp's terms of service; use it on an account you are prepared to lose.
+The bridge only listens: it never posts and never marks anything read. Media is not downloaded (an image becomes `[image] caption`) unless a group that has agreed sets `save_media = true`, or you ask for one attachment with `whatsapp-reader download`. It is an unofficial client, so it sits outside WhatsApp's terms of service; use it on an account you are prepared to lose.
 
 ## Setup
 
@@ -52,6 +52,7 @@ Read it from another machine with `ssh server 'cd dev/whatsapp-reader && uv run 
 | `transcript <group> [--days N \| --since T]` | pseudonymised messages, no API call |
 | `summarise <group> [--days N \| --since T] [--dry-run]` | digest via Claude; `--dry-run` shows exactly what would be sent |
 | `follow [group]` | stream new messages as they arrive (Ctrl-C to stop) |
+| `download <group> <id> [-o PATH]` | save one message's attachment (id from `transcript --ids`); see below |
 | `status` | bridge state, message count and last message per allowlisted group |
 | `index` | `data/groups.tsv`: every joined group with kind, members, community, allowlisted |
 | `groups` | the allowlist |
@@ -59,6 +60,18 @@ Read it from another machine with `ssh server 'cd dev/whatsapp-reader && uv run 
 | `agent [--once \| --dry-run]` | new messages in the `[agent]` group → Claude Code → GitHub issues |
 
 `<group>` is the label or JID from `config.toml`, matched case-insensitively.
+
+## Downloading an attachment
+
+```sh
+whatsapp-reader transcript "Course chat" --ids        # find the #ID of the [file ...] or [image] line
+whatsapp-reader download "Course chat" 3A0000000000000000AB -o slides.pdf
+```
+
+The bridge keeps each attachment's download keys (no file content) in `live.db`, and on request
+downloads the file into `data/attachments` (up to 100 MB). For messages stored before it kept keys, it
+asks your own phone once to resend the message; nothing is posted to the chat. WhatsApp's servers keep
+media only for a limited time, so fetch what you need soon.
 
 ## Finding the right group
 

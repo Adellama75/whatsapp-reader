@@ -119,6 +119,14 @@ def messages_before(db: Path, chat_jid: str, rowid: int, n: int) -> list[Message
         return _messages(conn, "m.chat_jid = ? AND m.rowid >= ? AND m.rowid < ?", (chat_jid, rows[-1][0], rowid))
 
 
+def attachment(db: Path, chat_jid: str, msg_id: str) -> tuple[str, str | None] | None:
+    """(kind, saved file or None) of one message, or None if it is not in the archive."""
+    with _connect(db) as conn:
+        file = "file" if _has_file_column(conn) else "NULL"
+        row = conn.execute(f"SELECT kind, {file} FROM messages WHERE chat_jid = ? AND id = ?", (chat_jid, msg_id)).fetchone()
+    return (row[0], row[1]) if row else None
+
+
 def last_rowid(db: Path) -> int:
     with _connect(db) as conn:
         return conn.execute("SELECT COALESCE(MAX(rowid), 0) FROM messages").fetchone()[0]

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -165,5 +167,55 @@ func TestSaveMediaIsPerGroupAndFileNamesAreSafe(t *testing.T) {
 	}
 	if safeName("../../etc/passwd") != "passwd" || safeName("my report (v2).pdf") != "my_report__v2_.pdf" {
 		t.Fatal("safeName", safeName("../../etc/passwd"), safeName("my report (v2).pdf"))
+	}
+}
+
+func TestMediaKeysAreKeptForLaterDownload(t *testing.T) {
+	ctx := context.Background()
+	doc := &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
+		FileName: proto.String("plan.pdf"), Mimetype: proto.String("application/pdf"), FileLength: proto.Uint64(1234),
+		DirectPath: proto.String("/v/t62/x"), MediaKey: []byte("k"), FileSHA256: []byte("h"), FileEncSHA256: []byte("e"),
+		Caption: proto.String("see p2"), JPEGThumbnail: []byte("thumb"),
+		ContextInfo: &waE2E.ContextInfo{StanzaID: proto.String("Q")},
+	}}
+	media := mediaOf(doc)
+	dl, name, size, err := attachment(media)
+	if err != nil || name != "plan.pdf" || size != 1234 {
+		t.Fatal(name, size, err)
+	}
+	d := dl.(*waE2E.DocumentMessage)
+	if d.GetDirectPath() != "/v/t62/x" || string(d.GetMediaKey()) != "k" || d.Caption != nil || d.JPEGThumbnail != nil || d.ContextInfo != nil {
+		t.Fatal("kept the wrong fields:", d)
+	}
+	if mediaOf(&waE2E.Message{Conversation: proto.String("hi")}) != nil {
+		t.Fatal("text has no attachment")
+	}
+
+	dir := t.TempDir()
+	st, _ := OpenStore(filepath.Join(dir, "live.db"))
+	msg := Msg{ChatJID: "1@g.us", ID: "D1", Sender: "111", At: time.Now(), Kind: "document", Text: "[file plan.pdf]"}
+	st.PutMessage(ctx, msg) // as stored before the bridge kept keys
+	if m, _, _, err := st.MediaOf(ctx, "1@g.us", "D1"); err != nil || m != nil {
+		t.Fatal("old message has keys?", m, err)
+	}
+	msg.Media = media
+	st.PutMessage(ctx, msg) // the phone resent it
+	msg.Media = nil
+	st.PutMessage(ctx, msg) // a later copy without keys keeps them
+	if m, sender, _, _ := st.MediaOf(ctx, "1@g.us", "D1"); !bytes.Equal(m, media) || sender != "111" {
+		t.Fatal("keys not kept")
+	}
+
+	// Requests for groups off the allowlist, or unknown messages, fail without touching WhatsApp.
+	cfg := filepath.Join(dir, "config.toml")
+	os.WriteFile(cfg, []byte("[[groups]]\njid = \"1@g.us\"\nlabel = \"A\"\n"), 0o600)
+	allow, _ := LoadAllowlist(cfg)
+	b := &bridge{store: st, allow: allow, dataDir: dir}
+	for chat, want := range map[string]string{"2@g.us": "not an allowlisted group", "1@g.us": "no message"} {
+		req := filepath.Join(dir, "NOPE.want")
+		os.WriteFile(req, []byte(chat+"\n"), 0o600)
+		if err := b.serveDownload(ctx, req, map[string]time.Time{}); err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s: %v", chat, err)
+		}
 	}
 }

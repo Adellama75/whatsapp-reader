@@ -4,7 +4,9 @@
 // It speaks the WhatsApp Web multi-device protocol through whatsmeow, so it
 // sees messages the moment they arrive (and gets a backlog via history sync
 // when first paired). Nothing is sent to WhatsApp except what the protocol
-// needs to stay connected; it never posts, reads receipts are not sent.
+// needs to stay connected, plus, for `whatsapp-reader download` of an attachment whose keys
+// it never saw, a request to the account's own phone to resend that message. It never posts
+// to a chat, reads receipts are not sent.
 package main
 
 import (
@@ -41,7 +43,7 @@ type bridge struct {
 	cli     *whatsmeow.Client
 	store   *Store
 	allow   *Allowlist
-	dataDir string // attachments of save_media groups go to <dataDir>/attachments
+	dataDir string // attachments go to <dataDir>/attachments, download requests come in <dataDir>/requests
 }
 
 // plugins run once the bridge is connected, each in its own goroutine until shutdown. Site-specific
@@ -130,6 +132,7 @@ func run(dataDir, configPath string, pair bool, phone, qrStyle string) error {
 	for _, p := range plugins {
 		go p(ctx, b)
 	}
+	go b.serveDownloads(ctx)
 
 	refresh := time.NewTicker(time.Hour)
 	defer refresh.Stop()
@@ -366,12 +369,18 @@ func (b *bridge) message(ctx context.Context, evt *events.Message) {
 			_, err = b.store.EditMessage(ctx, chat, info.ID, kind, text)
 			break
 		}
+		media := mediaOf(m)
 		err = b.store.PutMessage(ctx, Msg{
 			ChatJID: chat, ID: info.ID, Sender: sender, FromMe: info.IsFromMe,
-			At: info.Timestamp, Kind: kind, Text: text, ReplyTo: replyTo(m),
+			At: info.Timestamp, Kind: kind, Text: text, ReplyTo: replyTo(m), Media: media,
 		})
-		if err == nil && b.allow.SavesMedia(chat) && time.Since(info.Timestamp) < 48*time.Hour {
-			go b.saveMedia(ctx, chat, info.ID, m) // not for history sync backlogs
+		if err == nil && media != nil && (kind == "image" || kind == "document") &&
+			b.allow.SavesMedia(chat) && time.Since(info.Timestamp) < 48*time.Hour { // not for history sync backlogs
+			go func() {
+				if _, err := b.saveMedia(ctx, chat, info.ID, media, maxMedia); err != nil {
+					log.Printf("saving %s in %s: %v", info.ID, chat, err)
+				}
+			}()
 		}
 	}
 	if err != nil {
@@ -395,69 +404,6 @@ func (b *bridge) applyEdit(ctx context.Context, chat, id string, edited *waE2E.M
 		log.Printf("edit of %s in %s: no such message stored", id, chat)
 	}
 	return err
-}
-
-// maxMedia caps what saveMedia downloads; larger files stay a placeholder.
-const maxMedia = 10 << 20
-
-// saveMedia downloads an image or document into <data>/attachments so the agent can Read it.
-// Video, voice notes and stickers are skipped.
-func (b *bridge) saveMedia(ctx context.Context, chat, id string, m *waE2E.Message) {
-	var dl whatsmeow.DownloadableMessage
-	name := "image.jpg"
-	switch {
-	case m.GetImageMessage() != nil:
-		img := m.GetImageMessage()
-		if img.GetFileLength() > maxMedia {
-			return
-		}
-		dl = img
-	case m.GetDocumentMessage() != nil:
-		d := m.GetDocumentMessage()
-		if d.GetFileLength() > maxMedia {
-			return
-		}
-		dl, name = d, d.GetFileName()
-	default:
-		return
-	}
-	data, err := b.cli.Download(ctx, dl)
-	if err != nil {
-		log.Printf("downloading %s in %s: %v", id, chat, err)
-		return
-	}
-	dir := filepath.Join(b.dataDir, "attachments")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		log.Print(err)
-		return
-	}
-	path := filepath.Join(dir, id+"_"+safeName(name))
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		log.Print(err)
-		return
-	}
-	if abs, err := filepath.Abs(path); err == nil {
-		path = abs
-	}
-	if err := b.store.SetFile(ctx, chat, id, path); err != nil {
-		log.Printf("recording file of %s: %v", id, err)
-	}
-}
-
-func safeName(name string) string {
-	clean := strings.Map(func(r rune) rune {
-		if r == '.' || r == '-' || r == '_' || ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9') {
-			return r
-		}
-		return '_'
-	}, filepath.Base(name))
-	if len(clean) > 80 {
-		clean = clean[len(clean)-80:]
-	}
-	if clean == "" || clean == "." || clean == ".." {
-		return "file"
-	}
-	return clean
 }
 
 // setFields names the populated top-level fields of a message, for logging what we skipped.
