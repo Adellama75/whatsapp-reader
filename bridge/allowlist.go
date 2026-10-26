@@ -8,9 +8,10 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Allowlist is the set of group JIDs from config.toml's [[groups]] entries.
+// Allowlist is the set of chat JIDs from config.toml's [[groups]] entries: group JIDs, and
+// direct-message chats listed explicitly by <pn>@s.whatsapp.net or <lid>@lid.
 //
-// Only these groups are ever written to the store. The file is re-read when
+// Only these chats are ever written to the store. The file is re-read when
 // its mtime changes (checked at most every few seconds), so adding a group
 // that has given consent takes effect without restarting the bridge.
 type Allowlist struct {
@@ -75,7 +76,7 @@ func (a *Allowlist) Allows(jid string) bool {
 	return a.jids[jid]
 }
 
-// SavesMedia reports whether an allowlisted group opted into saving attachments.
+// SavesMedia reports whether an allowlisted chat opted into saving attachments.
 func (a *Allowlist) SavesMedia(jid string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()

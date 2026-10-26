@@ -1,5 +1,6 @@
 // whatsapp-reader-bridge: a linked WhatsApp device that archives allowlisted group
-// chats into data/live.db for the whatsapp-reader CLI.
+// chats (and direct-message chats explicitly listed in config.toml) into data/live.db for
+// the whatsapp-reader CLI.
 //
 // It speaks the WhatsApp Web multi-device protocol through whatsmeow, so it
 // sees messages the moment they arrive (and gets a backlog via history sync
@@ -293,7 +294,11 @@ func (b *bridge) historySync(ctx context.Context, e *events.HistorySync) {
 	kept, skipped := 0, 0
 	for _, conv := range e.Data.GetConversations() {
 		chat, err := types.ParseJID(conv.GetID())
-		if err != nil || chat.Server != types.GroupServer || !b.allow.Allows(chat.String()) {
+		if err != nil {
+			skipped += len(conv.GetMessages())
+			continue
+		}
+		if _, ok := b.chatKey(ctx, chat, types.EmptyJID); !ok {
 			skipped += len(conv.GetMessages())
 			continue
 		}
@@ -306,17 +311,18 @@ func (b *bridge) historySync(ctx context.Context, e *events.HistorySync) {
 			kept++
 		}
 	}
-	log.Printf("history sync (%s): stored %d messages from allowlisted groups, ignored %d", e.Data.GetSyncType(), kept, skipped)
+	log.Printf("history sync (%s): stored %d messages from allowlisted chats, ignored %d", e.Data.GetSyncType(), kept, skipped)
 }
 
 func (b *bridge) message(ctx context.Context, evt *events.Message) {
 	info := evt.Info
-	if info.Chat.Server != types.GroupServer {
-		return // direct messages are never stored
+	alt := info.SenderAlt // in a direct chat the other person: the sender, or the recipient of my own message
+	if info.IsFromMe {
+		alt = info.RecipientAlt
 	}
-	chat := info.Chat.String()
-	if !b.allow.Allows(chat) {
-		return
+	chat, ok := b.chatKey(ctx, info.Chat, alt)
+	if !ok {
+		return // not an allowlisted group, nor a direct chat listed in config.toml
 	}
 	sender := ""
 	if !info.IsFromMe {
@@ -435,4 +441,54 @@ func (b *bridge) canonical(ctx context.Context, sender, alt types.JID) string {
 		return lid.User
 	}
 	return sender.User
+}
+
+// chatKey says whether a chat is archived, and under which chat_jid. A group: its JID, if
+// allowlisted. A direct chat: only when config.toml lists it, by its phone-number JID
+// (<pn>@s.whatsapp.net) or its LID JID (<lid>@lid), whichever form the message arrives in;
+// it is stored under the listed form so the CLI finds it. Anything else (broadcasts,
+// channels, unlisted direct chats) is never stored.
+func (b *bridge) chatKey(ctx context.Context, chat, alt types.JID) (string, bool) {
+	if chat.Server == types.GroupServer {
+		return chat.String(), b.allow.Allows(chat.String())
+	}
+	return directKey(chat, alt, b.allow.Allows, func(j types.JID) types.JID { return b.otherForm(ctx, j) })
+}
+
+// directKey matches a direct chat against the allowlist in each of its JID forms: as given,
+// the alt JID that came with the message, and the other form from the LID map (lookup).
+func directKey(chat, alt types.JID, allows func(string) bool, lookup func(types.JID) types.JID) (string, bool) {
+	chat, alt = chat.ToNonAD(), alt.ToNonAD()
+	if !isUser(chat) {
+		return "", false
+	}
+	for _, j := range []types.JID{chat, alt} {
+		if isUser(j) && allows(j.String()) {
+			return j.String(), true
+		}
+	}
+	if j := lookup(chat).ToNonAD(); isUser(j) && allows(j.String()) {
+		return j.String(), true
+	}
+	return "", false
+}
+
+func isUser(j types.JID) bool {
+	return j.User != "" && (j.Server == types.DefaultUserServer || j.Server == types.HiddenUserServer)
+}
+
+// otherForm maps a phone-number JID to its LID JID and back, when the session has seen the pair.
+func (b *bridge) otherForm(ctx context.Context, j types.JID) types.JID {
+	var other types.JID
+	var err error
+	switch j.Server {
+	case types.HiddenUserServer:
+		other, err = b.cli.Store.LIDs.GetPNForLID(ctx, j)
+	case types.DefaultUserServer:
+		other, err = b.cli.Store.LIDs.GetLIDForPN(ctx, j)
+	}
+	if err != nil {
+		return types.EmptyJID
+	}
+	return other
 }

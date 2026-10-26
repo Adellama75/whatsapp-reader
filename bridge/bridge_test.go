@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -217,5 +218,51 @@ func TestMediaKeysAreKeptForLaterDownload(t *testing.T) {
 		if err := b.serveDownload(ctx, req, map[string]time.Time{}); err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%s: %v", chat, err)
 		}
+	}
+}
+
+func TestDirectChatsAreStoredOnlyWhenListedInEitherForm(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	os.WriteFile(path, []byte("[[groups]]\njid = \"1@g.us\"\nlabel = \"G\"\n"+
+		"[[groups]]\njid = \"447700900001@s.whatsapp.net\"\nlabel = \"Pat\"\n"+
+		"[[groups]]\njid = \"57153196953645@lid\"\nlabel = \"Sam\"\n"), 0o600)
+	a, err := LoadAllowlist(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pn := func(u string) types.JID { return types.NewJID(u, types.DefaultUserServer) }
+	lid := func(u string) types.JID { return types.NewJID(u, types.HiddenUserServer) }
+	pairs := map[types.JID]types.JID{ // the session's LID map, both ways
+		lid("11111111111111"): pn("447700900001"), pn("447700900001"): lid("11111111111111"),
+		pn("447700900002"): lid("57153196953645"), lid("57153196953645"): pn("447700900002"),
+	}
+	lookup := func(j types.JID) types.JID { return pairs[j] }
+	device := types.JID{User: "447700900001", Device: 3, Server: types.DefaultUserServer}
+	cases := []struct {
+		chat, alt types.JID
+		want      string
+	}{
+		{pn("447700900001"), types.EmptyJID, "447700900001@s.whatsapp.net"},        // listed form
+		{lid("11111111111111"), pn("447700900001"), "447700900001@s.whatsapp.net"}, // alt JID on the message
+		{lid("11111111111111"), types.EmptyJID, "447700900001@s.whatsapp.net"},     // LID map (history sync)
+		{pn("447700900002"), types.EmptyJID, "57153196953645@lid"},                 // listed by LID, arrives by number
+		{device, types.EmptyJID, "447700900001@s.whatsapp.net"},                    // device suffix dropped
+		{pn("447700900009"), types.EmptyJID, ""},                                   // not listed: never stored
+		{lid("99999999999999"), pn("447700900009"), ""},
+		{types.NewJID("1", types.GroupServer), types.EmptyJID, ""},              // groups don't go this way
+		{types.NewJID("status", types.BroadcastServer), pn("447700900001"), ""}, // nor broadcasts
+	}
+	for _, c := range cases {
+		got, ok := directKey(c.chat, c.alt, a.Allows, lookup)
+		if got != c.want || ok != (c.want != "") {
+			t.Errorf("directKey(%s, %s) = %q,%v want %q", c.chat, c.alt, got, ok, c.want)
+		}
+	}
+	b := &bridge{allow: a}
+	if key, ok := b.chatKey(context.Background(), types.NewJID("1", types.GroupServer), types.EmptyJID); !ok || key != "1@g.us" {
+		t.Errorf("group: %q %v", key, ok)
+	}
+	if _, ok := b.chatKey(context.Background(), types.NewJID("2", types.GroupServer), pn("447700900001")); ok {
+		t.Error("an unlisted group must not match through an alt JID")
 	}
 }
