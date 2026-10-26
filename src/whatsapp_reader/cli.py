@@ -123,6 +123,26 @@ def cmd_follow(c: cfg.Config, args) -> None:
            prefix_labels=not args.group)
 
 
+def cmd_tail(c: cfg.Config, args) -> None:
+    """Print each new message of one group as soon as it is stored, as transcript lines with ids.
+    Unlike follow: no batching or debounce, and no data/follow.cursor (pass --after to resume)."""
+    from .chat import replies_to_bot
+
+    g = _find_group(c, args.group)
+    prefix = c.agent.prefix if c.agent else ""
+    cursor = last_rowid(c.live_db) if args.after is None else args.after
+    n = 0
+    while args.polls is None or n < args.polls:
+        n += 1
+        msgs = messages_after(c.live_db, g.jid, cursor)
+        if msgs:
+            out = _transcript(c, g, msgs, to_claude=lambda m: replies_to_bot(m, prefix), ids=True)
+            for line in out.splitlines():
+                print(line, flush=True)
+            cursor = max(m.rowid for m in msgs)
+        time.sleep(args.interval)
+
+
 def cmd_agent(c: cfg.Config, args) -> None:
     """Watch the [agent] group and run Claude Code on each burst of new messages (chat-agent)."""
     from chatagent import AgentLoop
@@ -244,6 +264,13 @@ def main() -> None:
     f.add_argument("--interval", type=float, default=2, help="seconds between polls")
     f.add_argument("--polls", type=int, help="stop after this many polls (default: run until Ctrl-C)")
     f.set_defaults(fn=cmd_follow)
+
+    tl = sub.add_parser("tail", help="stream one group's new messages as transcript lines, no batching or cursor file")
+    tl.add_argument("group", help="label or JID, as in config.toml")
+    tl.add_argument("--after", type=int, help="start after this archive rowid (default: only messages from now on)")
+    tl.add_argument("--interval", type=float, default=2, help="seconds between polls")
+    tl.add_argument("--polls", type=int, help="stop after this many polls (default: run until Ctrl-C)")
+    tl.set_defaults(fn=cmd_tail)
 
     d = sub.add_parser("download", help="save the attachment (image, document, video, voice note) of one message")
     d.add_argument("group", help="label or JID, as in config.toml")

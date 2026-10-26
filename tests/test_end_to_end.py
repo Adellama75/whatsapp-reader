@@ -83,6 +83,23 @@ def test_follow_prints_messages_as_they_arrive(run, db, monkeypatch):
     assert "room changed to 1.02" in out and "Social Thursday" not in out
 
 
+def test_tail_streams_transcript_lines_without_a_cursor_file(run, db, monkeypatch):
+    polls = iter(range(10))
+
+    def arrive(_seconds):
+        if next(polls) == 0:
+            with sqlite3.connect(db) as conn:
+                conn.execute("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)",
+                             (GROUP, "T", "447700900001", 0, ts(2026, 10, 4, 9), "text", "room changed to 1.02", None))
+
+    monkeypatch.setattr("whatsapp_reader.cli.time.sleep", arrive)
+    out = run("tail", "robotics soc", "--polls", "2", "--interval", "0")
+    assert out.startswith("[Sun 04 Oct 09:00 #T] Member-") and "room changed to 1.02" in out
+    assert "447700900001" not in out and "Social Thursday" not in out
+    assert out == run("transcript", "robotics soc", "--since", "2026-10-04", "--ids")  # same line, same pseudonym
+    assert not (db.parent / "follow.cursor").exists()
+
+
 def test_download_asks_the_bridge_and_copies_the_file(run, db, tmp_path, monkeypatch):
     conn = sqlite3.connect(db)
     conn.execute("ALTER TABLE messages ADD COLUMN file TEXT")
