@@ -173,3 +173,52 @@ def status(db: Path, chat_jids: list[str]) -> tuple[dict[str, str], dict[str, tu
             for jid in chat_jids
         }
     return state, {jid: (n, _ts(last)) for jid, (n, last) in per_group.items()}
+
+
+@dataclass
+class Contact:
+    name: str
+    lid: str | None  # LID user part, when the session has seen it
+    pn: str | None  # phone number user part, when known
+
+    @property
+    def jid(self) -> str:
+        """The direct-chat JID to list in config.toml: the LID form when known (no phone number in it)."""
+        return f"{self.lid}@lid" if self.lid else f"{self.pn}@s.whatsapp.net"
+
+
+def contacts(session_db: Path, db: Path, query: str) -> list[Contact]:
+    """People whose name contains `query` (case-insensitive): the names saved on the phone, as the
+    bridge's WhatsApp session keeps them in session.db, and profile (push) names from live.db."""
+    q = query.lower()
+    names: dict[str, set[str]] = {}  # their JID user part -> names
+    servers: dict[str, str] = {}
+    with _connect(session_db) as conn:
+        lid_of = dict(conn.execute("SELECT pn, lid FROM whatsmeow_lid_map").fetchall())
+        for jid, *ns in conn.execute(
+            "SELECT their_jid, first_name, full_name, push_name, business_name FROM whatsmeow_contacts"
+        ):
+            user, _, server = jid.partition("@")
+            if server in ("s.whatsapp.net", "lid"):
+                servers[user] = server
+                names.setdefault(user, set()).update(n for n in ns if n)
+    pn_of = {lid: pn for pn, lid in lid_of.items()}
+    with _connect(db) as conn:
+        for user, push in conn.execute("SELECT id, push_name FROM people"):
+            servers.setdefault(user, "lid" if user in pn_of else "s.whatsapp.net")
+            names.setdefault(user, set()).add(push)
+    merged: dict[str, tuple[set[str], str | None, str | None]] = {}
+    for user, ns in names.items():
+        if servers[user] == "lid":
+            lid, pn = user, pn_of.get(user)
+        else:
+            lid, pn = lid_of.get(user), user
+        key = lid or pn
+        prev = merged.get(key, (set(), None, None))
+        merged[key] = (prev[0] | ns, lid or prev[1], pn or prev[2])
+    out = [
+        Contact(" / ".join(sorted(ns, key=str.lower)), lid, pn)
+        for ns, lid, pn in merged.values()
+        if any(q in n.lower() for n in ns)
+    ]
+    return sorted(out, key=lambda c: c.name.lower())

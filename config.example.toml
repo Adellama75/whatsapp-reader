@@ -26,6 +26,12 @@ label = "Course chat"
 #                        # data/attachments so `whatsapp-reader agent` can read them
 #                        # (`whatsapp-reader download` fetches one attachment from any allowlisted group)
 
+# A direct chat is stored only if listed here like a group, by its JID: <lid>@lid or <pn>@s.whatsapp.net
+# (either form matches). Find it with: whatsapp-reader contacts <name>
+# [[groups]]
+# jid = "57153196953645@lid"
+# label = "Alice"
+
 # [names]
 # "57153196953645" = "Alice"   # sender ID as shown in the raw transcript -> display name
 

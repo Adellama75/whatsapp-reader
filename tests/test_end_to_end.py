@@ -133,3 +133,53 @@ def test_download_asks_the_bridge_and_copies_the_file(run, db, tmp_path, monkeyp
     monkeypatch.setattr(cli.time, "sleep", lambda _: (requests / "D.err").write_text("the phone did not resend it\n"))
     with pytest.raises(SystemExit, match="download failed: the phone did not resend it"):
         run("download", "Robotics Soc", "D")
+
+
+def test_direct_chat_listed_like_a_group_and_found_by_contact_name(db, tmp_path, monkeypatch, capsys):
+    """A DM entry works by label in groups/transcript; `contacts` finds its JID by the name saved on the phone."""
+    dm = "57153196953645@lid"
+    with sqlite3.connect(db) as conn:
+        conn.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)", [
+            (dm, "M1", "57153196953645", 0, ts(2026, 10, 4, 9), "text", "lunch at 1?", None),
+            (dm, "M2", "", 1, ts(2026, 10, 4, 9, 1), "text", "yes", "M1"),
+        ])
+    session = sqlite3.connect(db.parent / "session.db")
+    session.executescript("""
+        CREATE TABLE whatsmeow_contacts (our_jid TEXT, their_jid TEXT, first_name TEXT, full_name TEXT,
+            push_name TEXT, business_name TEXT, redacted_phone TEXT, PRIMARY KEY (our_jid, their_jid));
+        CREATE TABLE whatsmeow_lid_map (lid TEXT PRIMARY KEY, pn TEXT UNIQUE NOT NULL);
+        INSERT INTO whatsmeow_lid_map VALUES ('57153196953645', '447700900002');
+        INSERT INTO whatsmeow_contacts VALUES ('me', '447700900002@s.whatsapp.net', 'Bobby', 'Bobby Tables', 'Bob', '', '');
+        INSERT INTO whatsmeow_contacts VALUES ('me', '447700900003@s.whatsapp.net', 'Carol', 'Carol', '', '', '');
+    """)
+    session.commit()
+    session.close()
+    config = tmp_path / "config.toml"
+    config.write_text(f"""
+[paths]
+secret_file = "{tmp_path / 'pseudonym.secret'}"
+data_dir = "{db.parent}"
+
+[summariser]
+model = "claude-opus-5-5"
+effort = "low"
+
+[[groups]]
+jid = "{dm}"
+label = "Bob"
+""")
+
+    def run(*args):
+        monkeypatch.setattr(sys, "argv", ["whatsapp-reader", "--config", str(config), *args])
+        cli.main()
+        return capsys.readouterr().out
+
+    assert run("groups").strip() == f"{dm}\tBob"
+    t = run("transcript", "bob", "--since", "2026-10-04")
+    assert "Member-" in t and "lunch at 1?" in t and 'Me: yes (replying to "lunch at 1?")' in t
+    assert "57153196953645" not in t and "Bob" not in t  # pseudonymised as usual
+    assert run("contacts", "tables").strip() == f"{dm}\tBob / Bobby / Bobby Tables\tallowlisted"
+    assert "447700900002" not in run("contacts", "bob")  # no phone number unless asked
+    assert "447700900002@s.whatsapp.net" in run("contacts", "bob", "--numbers")
+    assert run("contacts", "carol").strip() == "447700900003@s.whatsapp.net\tCarol"  # no LID known yet
+    assert "No contact" in run("contacts", "zed")

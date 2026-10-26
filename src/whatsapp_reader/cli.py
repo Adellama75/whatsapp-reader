@@ -12,6 +12,7 @@ from .pseudonymise import MENTION, load_or_create_secret, transcript
 from .store import (
     Message,
     attachment,
+    contacts,
     group_index,
     last_rowid,
     messages_after,
@@ -78,6 +79,18 @@ def cmd_index(c: cfg.Config, args) -> None:
     out.write_text(text)
     print(text, end="")
     print(f"wrote {out}", file=sys.stderr)
+
+
+def cmd_contacts(c: cfg.Config, args) -> None:
+    """Find a person's direct-chat JID by name, to list that chat in config.toml as a [[groups]] entry."""
+    allow = {g.jid for g in c.groups}
+    found = contacts(c.data_dir / "session.db", c.live_db, args.name)
+    if not found:
+        print(f"No contact matching {args.name!r}.")
+    for p in found:
+        listed = "allowlisted" if {p.jid, f"{p.lid}@lid", f"{p.pn}@s.whatsapp.net"} & allow else ""
+        number = f"\t{p.pn}@s.whatsapp.net" if args.numbers and p.pn and p.lid else ""
+        print(f"{p.jid}\t{p.name}{number}\t{listed}".rstrip("\t"))
 
 
 def cmd_transcript(c: cfg.Config, args) -> None:
@@ -245,6 +258,11 @@ def main() -> None:
     def period(sp):
         sp.add_argument("--days", type=float, default=1, help="lookback (default 1)")
         sp.add_argument("--since", help="ISO date/time instead of --days, e.g. 2026-10-16T09:00")
+
+    ct = sub.add_parser("contacts", help="find a person's direct-chat JID by name (to allowlist that chat)")
+    ct.add_argument("name", help="part of the name saved on the phone, or of their profile name")
+    ct.add_argument("--numbers", action="store_true", help="also show the phone-number JID")
+    ct.set_defaults(fn=cmd_contacts)
 
     t = sub.add_parser("transcript", help="print the raw pseudonymised messages of one allowlisted group")
     t.add_argument("group", help="label or JID, as in config.toml")
