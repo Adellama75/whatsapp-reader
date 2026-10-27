@@ -16,8 +16,10 @@ from .store import (
     group_index,
     last_rowid,
     messages_after,
+    messages_by_id,
     messages_since,
     own_ids,
+    poll_votes,
     push_names,
     status,
 )
@@ -39,6 +41,7 @@ def _transcript(c: cfg.Config, g: cfg.Group, msgs: list[Message], to_claude=None
         return transcript(load_or_create_secret(c.secret_file), msgs, me=me, to_claude=to_claude, ids=ids)
     users = {m.sender for m in msgs if m.sender} | {u for m in msgs for u, _ in m.reactions if u}
     users |= {u for m in msgs for t in (m.text, m.quoted or "") for u in MENTION.findall(t)}  # @-mentioned, maybe silent
+    users |= {u for m in msgs if m.poll for _, voters in m.poll[1] for u in voters if u}
     names = push_names(c.live_db, users) | c.names  # config.toml [names] wins over profile names
     return transcript(None, msgs, names=names, me=me, to_claude=to_claude, ids=ids)
 
@@ -137,22 +140,32 @@ def cmd_follow(c: cfg.Config, args) -> None:
 
 
 def cmd_tail(c: cfg.Config, args) -> None:
-    """Print each new message of one group as soon as it is stored, as transcript lines with ids.
+    """Print each new message of one group as soon as it is stored, as transcript lines with ids, and
+    a `[poll update]` line with the new tally whenever someone votes on a poll.
     Unlike follow: no batching or debounce, and no data/follow.cursor (pass --after to resume)."""
     from .chat import replies_to_bot
 
     g = _find_group(c, args.group)
     prefix = c.agent.prefix if c.agent else ""
+    to_claude = lambda m: replies_to_bot(m, prefix)  # noqa: E731
     cursor = last_rowid(c.live_db) if args.after is None else args.after
+    votes = poll_votes(c.live_db, g.jid)
     n = 0
     while args.polls is None or n < args.polls:
         n += 1
         msgs = messages_after(c.live_db, g.jid, cursor)
         if msgs:
-            out = _transcript(c, g, msgs, to_claude=lambda m: replies_to_bot(m, prefix), ids=True)
-            for line in out.splitlines():
+            for line in _transcript(c, g, msgs, to_claude=to_claude, ids=True).splitlines():
                 print(line, flush=True)
             cursor = max(m.rowid for m in msgs)
+        now = poll_votes(c.live_db, g.jid)
+        printed = {m.id for m in msgs}  # a poll that just arrived already shows its tally
+        changed = sorted({k[0] for k in now.keys() | votes.keys() if now.get(k) != votes.get(k)} - printed)
+        votes = now
+        polls = messages_by_id(c.live_db, g.jid, changed)
+        if polls:
+            for line in _transcript(c, g, polls, to_claude=to_claude, ids=True).splitlines():
+                print(f"[poll update] {line}", flush=True)
         time.sleep(args.interval)
 
 

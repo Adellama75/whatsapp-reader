@@ -5,6 +5,7 @@ read-only, so the CLI can never corrupt the archive and can run while the
 bridge is writing (SQLite WAL mode allows one writer plus any readers).
 """
 
+import json
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -24,6 +25,8 @@ class Message:
     id: str = ""  # WhatsApp message id (the #ID in transcripts with ids)
     quoted_from_me: bool = False  # the quoted message is one of mine (e.g. the agent's own post)
     file: str | None = None  # saved attachment, for groups with save_media = true
+    # A poll's question and current tally: (option, voters) in option order; a voter None is me.
+    poll: tuple[str, list[tuple[str, list[str | None]]]] | None = None
 
 
 @dataclass
@@ -52,6 +55,57 @@ def _has_file_column(conn: sqlite3.Connection) -> bool:
     return "file" in {r[1] for r in conn.execute("PRAGMA table_info(messages)")}  # added by newer bridges
 
 
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}  # empty if the table doesn't exist
+
+
+def _poll_question(text: str, options: list[str] | None, voted: set[str] = frozenset()) -> tuple[str, list[str]]:
+    """Split the bridge's "[poll] question: a / b" text. The question itself may contain ": ", so
+    use the stored option list when there is one, else the split whose options cover what was voted."""
+    body = text.removeprefix("[poll] ")
+    if options:
+        tail = ": " + " / ".join(options)
+        return (body[: -len(tail)] if body.endswith(tail) else body), options
+    splits = [i for i in range(len(body)) if body.startswith(": ", i)]
+    if not splits:
+        return body, []
+    want = {o for o in voted if not o.startswith("?")}
+    i = next((i for i in splits if want <= set(body[i + 2:].split(" / "))), splits[0])
+    return body[:i], body[i + 2:].split(" / ")
+
+
+def _polls(conn: sqlite3.Connection, chat: str, polls: dict[str, str]) -> dict[str, tuple]:
+    """Question and tally of each poll in `polls` (id -> text). Empty for archives from bridges that
+    don't record votes (no poll_votes table): their polls show as plain text, not as all zeros."""
+    if not _columns(conn, "poll_votes"):
+        return {}
+    cols = _columns(conn, "messages")
+    stored: dict[str, list[str]] = {}
+    votes: dict[str, list[tuple[str, list[str]]]] = {}
+    marks = ",".join("?" * len(polls))
+    if "poll_options" in cols:
+        for mid, raw in conn.execute(
+            f"SELECT id, poll_options FROM messages WHERE chat_jid = ? AND id IN ({marks}) AND poll_options IS NOT NULL",
+            (chat, *polls),
+        ):
+            stored[mid] = json.loads(raw)
+    for pid, voter, raw in conn.execute(
+        f"SELECT poll_id, voter, options FROM poll_votes WHERE chat_jid = ? AND poll_id IN ({marks}) ORDER BY ts",
+        (chat, *polls),
+    ):
+        votes.setdefault(pid, []).append((voter, json.loads(raw)))
+    out = {}
+    for mid, text in polls.items():
+        voted = {o for _, picks in votes.get(mid, []) for o in picks}
+        question, options = _poll_question(text, stored.get(mid), voted)
+        tally: dict[str, list[str | None]] = {o: [] for o in options}
+        for voter, picks in votes.get(mid, []):
+            for o in picks:
+                tally.setdefault(o, []).append(voter or None)  # an option we can't name stays as ?hash
+        out[mid] = (question, list(tally.items()))
+    return out
+
+
 def _messages(conn: sqlite3.Connection, where: str, params: tuple) -> list[Message]:
     file = "m.file" if _has_file_column(conn) else "NULL"
     rows = conn.execute(
@@ -70,6 +124,8 @@ def _messages(conn: sqlite3.Connection, where: str, params: tuple) -> list[Messa
         f"SELECT m.id, m.rowid FROM messages m WHERE {where}", params
     ).fetchall()
     by_id = {mid: rid for mid, rid in ids}
+    polls = _polls(conn, params[0], {mid: text for _, _, _, _, _, text, kind, _, mid, _, _ in rows if kind == "poll"}) \
+        if any(r[6] == "poll" for r in rows) else {}
     reactions: dict[int, list[tuple[str | None, str]]] = {}
     marks = ",".join("?" * len(by_id))
     for target, sender, emoji in conn.execute(
@@ -90,6 +146,7 @@ def _messages(conn: sqlite3.Connection, where: str, params: tuple) -> list[Messa
             id=mid,
             quoted_from_me=bool(q_from_me),
             file=file,
+            poll=polls.get(mid),
         )
         for rowid, chat, ts, from_me, sender, text, kind, quoted, mid, q_from_me, file in rows
     ]
@@ -222,3 +279,20 @@ def contacts(session_db: Path, db: Path, query: str) -> list[Contact]:
         if any(q in n.lower() for n in ns)
     ]
     return sorted(out, key=lambda c: c.name.lower())
+
+
+def poll_votes(db: Path, chat_jid: str) -> dict[tuple[str, str], tuple[str, int]]:
+    """Every vote in one chat, (poll id, voter) -> (options JSON, ts): for spotting changes."""
+    with _connect(db) as conn:
+        if not _columns(conn, "poll_votes"):
+            return {}
+        rows = conn.execute("SELECT poll_id, voter, options, ts FROM poll_votes WHERE chat_jid = ?", (chat_jid,))
+        return {(p, v): (o, t) for p, v, o, t in rows}
+
+
+def messages_by_id(db: Path, chat_jid: str, ids: list[str]) -> list[Message]:
+    """These messages of one chat (those stored), oldest first."""
+    if not ids:
+        return []
+    with _connect(db) as conn:
+        return _messages(conn, f"m.chat_jid = ? AND m.id IN ({','.join('?' * len(ids))})", (chat_jid, *ids))

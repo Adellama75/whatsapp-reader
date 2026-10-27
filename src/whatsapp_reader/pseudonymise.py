@@ -84,6 +84,11 @@ def transcript(secret: bytes | None, messages: list[Message], names: dict[str, s
         if to_claude and to_claude(m):
             head += " [to claude]"
         body = clean(m.text)
+        if m.poll:
+            question, tally = m.poll
+            body = f"[poll] {clean(question)}: " + " / ".join(
+                f"{clean(o)} ({len(v)}{': ' + ', '.join(person(u) for u in v) if v else ''})" for o, v in tally
+            )
         if m.quoted:
             snippet = clean(m.quoted.replace("\n", " "))
             body += f' (replying to "{snippet[:60]}{"…" if len(snippet) > 60 else ""}")'

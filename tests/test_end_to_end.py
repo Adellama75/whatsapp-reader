@@ -183,3 +183,57 @@ label = "Bob"
     assert "447700900002@s.whatsapp.net" in run("contacts", "bob", "--numbers")
     assert run("contacts", "carol").strip() == "447700900003@s.whatsapp.net\tCarol"  # no LID known yet
     assert "No contact" in run("contacts", "zed")
+
+
+POLL_SCHEMA = """
+ALTER TABLE messages ADD COLUMN poll_options TEXT;
+CREATE TABLE poll_votes (chat_jid TEXT NOT NULL, poll_id TEXT NOT NULL, voter TEXT NOT NULL,
+    options TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (chat_jid, poll_id, voter));
+"""
+
+
+def _poll(db, with_options=True):
+    with sqlite3.connect(db) as conn:
+        conn.executescript(POLL_SCHEMA)
+        conn.execute("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?)",
+                     (GROUP, "P", "", 1, ts(2026, 10, 4, 10), "poll", "[poll] Q: which?: temp / stir / pH", None,
+                      '["temp","stir","pH"]' if with_options else None))
+        conn.executemany("INSERT INTO poll_votes VALUES (?,?,?,?,?)", [
+            (GROUP, "P", "", '["temp"]', 1),                        # me, from my phone
+            (GROUP, "P", "57153196953645", '["temp","pH"]', 2),     # Bob (LID)
+            (GROUP, "P", "447700900001", '[]', 3),                  # voted, then withdrew
+            (GROUP, "P", "99999999999999", '["?ab12cd34"]', 4),     # an option the bridge couldn't name
+        ])
+
+
+@pytest.mark.parametrize("with_options", [True, False])
+def test_transcript_shows_poll_tallies(run, db, with_options):
+    _poll(db, with_options)
+    t = run("transcript", "robotics soc", "--since", "2026-10-04")
+    line = next(x for x in t.splitlines() if "[poll]" in x)
+    bob = line.split("pH (1: ")[1].split(")")[0]
+    assert line.endswith(f"Me: [poll] Q: which?: temp (2: Me, {bob}) / stir (0) / pH (1: {bob}) / ?ab12cd34 (1: "
+                         + line.rsplit("?ab12cd34 (1: ", 1)[1])
+    assert bob.startswith("Member-") and "57153196953645" not in t and "Bob" not in t  # pseudonymised voters
+
+
+def test_poll_voters_by_name_when_not_pseudonymised(run, db, tmp_path):
+    _poll(db)
+    config = tmp_path / "config.toml"
+    config.write_text(config.read_text().replace('label = "Robotics Soc"', 'label = "Robotics Soc"\npseudonymise = false'))
+    t = run("transcript", "robotics soc", "--since", "2026-10-04")
+    assert "temp (2: Me, Bob) / stir (0) / pH (1: Bob)" in t
+
+
+def test_tail_prints_poll_updates_when_votes_change(run, db, monkeypatch):
+    _poll(db)
+    polls = iter(range(10))
+
+    def vote(_seconds):
+        if next(polls) == 0:
+            with sqlite3.connect(db) as conn:
+                conn.execute("UPDATE poll_votes SET options = '[\"stir\"]', ts = 9 WHERE voter = '57153196953645'")
+
+    monkeypatch.setattr("whatsapp_reader.cli.time.sleep", vote)
+    out = run("tail", "robotics soc", "--polls", "2", "--interval", "0")
+    assert out.count("\n") == 1 and out.startswith("[poll update] [Sun 04 Oct 10:00 #P] Me: [poll] Q: which?: temp (1: Me) / stir (1: Member-")
