@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -33,12 +34,17 @@ CREATE TABLE IF NOT EXISTS reactions (
 CREATE TABLE IF NOT EXISTS people (
 	id TEXT PRIMARY KEY, push_name TEXT NOT NULL, updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS status (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS poll_votes (
+	chat_jid TEXT NOT NULL, poll_id TEXT NOT NULL, voter TEXT NOT NULL,
+	options TEXT NOT NULL, ts INTEGER NOT NULL,
+	PRIMARY KEY (chat_jid, poll_id, voter));
 `
 
 // migrations add columns that archives from older bridges lack; "duplicate column" errors are expected.
 var migrations = []string{
-	`ALTER TABLE messages ADD COLUMN file TEXT`,  // saved attachment path, for groups with save_media = true
-	`ALTER TABLE messages ADD COLUMN media BLOB`, // attachment keys (see mediaOf), to download it later
+	`ALTER TABLE messages ADD COLUMN file TEXT`,         // saved attachment path, for groups with save_media = true
+	`ALTER TABLE messages ADD COLUMN media BLOB`,        // attachment keys (see mediaOf), to download it later
+	`ALTER TABLE messages ADD COLUMN poll_options TEXT`, // a poll's option names (JSON), which votes name by hash
 }
 
 func OpenStore(path string) (*Store, error) {
@@ -93,7 +99,8 @@ type Msg struct {
 	ChatJID, ID, Sender, Kind, Text, ReplyTo string
 	FromMe                                   bool
 	At                                       time.Time
-	Media                                    []byte // see mediaOf; nil for messages without an attachment
+	Media                                    []byte   // see mediaOf; nil for messages without an attachment
+	PollOptions                              []string // a poll's option names; nil for other messages
 }
 
 // PutMessage stores a message, or updates its text if it was edited (and its attachment keys, if it
@@ -103,12 +110,20 @@ func (s *Store) PutMessage(ctx context.Context, m Msg) error {
 	if m.ReplyTo != "" {
 		reply = m.ReplyTo
 	}
+	var poll any
+	if m.PollOptions != nil {
+		js, err := json.Marshal(m.PollOptions)
+		if err != nil {
+			return err
+		}
+		poll = string(js)
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO messages (chat_jid, id, sender, from_me, ts, kind, text, reply_to, media)
-		VALUES (?,?,?,?,?,?,?,?,?)
+		INSERT INTO messages (chat_jid, id, sender, from_me, ts, kind, text, reply_to, media, poll_options)
+		VALUES (?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT (chat_jid, id) DO UPDATE SET kind = excluded.kind, text = excluded.text,
-			media = COALESCE(excluded.media, media)`,
-		m.ChatJID, m.ID, m.Sender, m.FromMe, m.At.Unix(), m.Kind, m.Text, reply, m.Media)
+			media = COALESCE(excluded.media, media), poll_options = COALESCE(excluded.poll_options, poll_options)`,
+		m.ChatJID, m.ID, m.Sender, m.FromMe, m.At.Unix(), m.Kind, m.Text, reply, m.Media, poll)
 	return err
 }
 

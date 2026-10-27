@@ -308,6 +308,11 @@ func (b *bridge) historySync(ctx context.Context, e *events.HistorySync) {
 				continue
 			}
 			b.message(ctx, evt)
+			if ups := hm.GetMessage().GetPollUpdates(); len(ups) > 0 {
+				if key, ok := b.chatKey(ctx, chat, types.EmptyJID); ok {
+					b.historyVotes(ctx, key, evt.Info.ID, ups)
+				}
+			}
 			kept++
 		}
 	}
@@ -334,6 +339,8 @@ func (b *bridge) message(ctx context.Context, evt *events.Message) {
 	m := evt.Message
 	var err error
 	switch {
+	case m.GetPollUpdateMessage() != nil:
+		err = b.pollVote(ctx, chat, sender, evt)
 	case m.GetReactionMessage() != nil:
 		r := m.GetReactionMessage()
 		err = b.store.PutReaction(ctx, chat, r.GetKey().GetID(), sender, r.GetText(), info.Timestamp)
@@ -378,7 +385,7 @@ func (b *bridge) message(ctx context.Context, evt *events.Message) {
 		media := mediaOf(m)
 		err = b.store.PutMessage(ctx, Msg{
 			ChatJID: chat, ID: info.ID, Sender: sender, FromMe: info.IsFromMe,
-			At: info.Timestamp, Kind: kind, Text: text, ReplyTo: replyTo(m), Media: media,
+			At: info.Timestamp, Kind: kind, Text: text, ReplyTo: replyTo(m), Media: media, PollOptions: pollOptions(m),
 		})
 		if err == nil && media != nil && (kind == "image" || kind == "document") &&
 			b.allow.SavesMedia(chat) && time.Since(info.Timestamp) < 48*time.Hour { // not for history sync backlogs
