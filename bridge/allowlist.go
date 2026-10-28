@@ -24,6 +24,7 @@ type Allowlist struct {
 	seen  time.Time
 	// HistoryDays is the [bridge] history_days hint sent to the phone at pairing.
 	HistoryDays uint32
+	deleteSpam  bool // [bridge] delete_spam: see spam.go
 }
 
 type configFile struct {
@@ -33,6 +34,7 @@ type configFile struct {
 	} `toml:"groups"`
 	Bridge struct {
 		HistoryDays uint32 `toml:"history_days"`
+		DeleteSpam  bool   `toml:"delete_spam"`
 	} `toml:"bridge"`
 }
 
@@ -63,7 +65,7 @@ func (a *Allowlist) reload() error {
 		}
 	}
 	a.media = media
-	a.jids, a.mod, a.HistoryDays = jids, st.ModTime(), c.Bridge.HistoryDays
+	a.jids, a.mod, a.HistoryDays, a.deleteSpam = jids, st.ModTime(), c.Bridge.HistoryDays, c.Bridge.DeleteSpam
 	return nil
 }
 
@@ -81,4 +83,14 @@ func (a *Allowlist) SavesMedia(jid string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.media[jid]
+}
+
+// DeletesSpam reports whether [bridge] delete_spam is on, re-reading config.toml like Allows.
+func (a *Allowlist) DeletesSpam() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if time.Since(a.seen) > 5*time.Second {
+		_ = a.reload()
+	}
+	return a.deleteSpam
 }

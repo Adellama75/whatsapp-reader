@@ -104,6 +104,15 @@ repo (`../chat-agent`) before `uv sync`. This repo only has the WhatsApp adapter
 Plugins installed next to whatsapp-reader (entry-point group `whatsapp_reader.plugins`, see `src/whatsapp_reader/plugins.py`) can add
 commands and agent tools; bridge additions go in `bridge/local_*.go`. None ship with this repo.
 
+## Spam filter
+
+With `delete_spam = true` under `[bridge]`, the bridge watches each community's announcements group and any
+community subgroup named "General" (whether or not they are allowlisted) and deletes for you messages that look like
+ticket resale ("selling 2 tickets, can't make it, DM me"), crypto/get-rich offers or giveaway bait. It is the same
+as "Delete for me" on the phone: gone from all your devices, untouched for everyone else, and not recoverable.
+Your phone may still have shown a notification by then; mute those groups to avoid that. Nothing of the message is
+kept; the bridge log names the group, message id and matched rule. The rules are in `bridge/spam.go`.
+
 ## Groups that have agreed to real names
 
 Pseudonymisation is per group. For a small working group where everyone has agreed, set `pseudonymise = false` on its entry; transcripts and digests then show senders by the name they set on their own WhatsApp profile, and leave text unscrubbed. A `[names]` table overrides profile names, keyed by the sender ID shown in the raw transcript:

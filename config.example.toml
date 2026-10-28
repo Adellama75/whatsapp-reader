@@ -12,6 +12,9 @@ bridge = "bridge/whatsapp-reader-bridge"
 # How many days of backlog to ask the phone for when first linking (0 = WhatsApp's default, usually a few months
 # of recent chats). Only takes effect at `whatsapp-reader link` time.
 history_days = 0
+# Delete for me (on every device, nobody else affected) ticket-resale and similar spam as it arrives in each
+# community's announcements group and any community subgroup named "General". Off unless set; see bridge/spam.go.
+# delete_spam = true
 
 [summariser]
 model = "claude-opus-5-5"

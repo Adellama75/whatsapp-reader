@@ -191,3 +191,12 @@ func (s *Store) SetStatus(ctx context.Context, key, value string) error {
 		key, value)
 	return err
 }
+
+// SpamWatched reports whether a group is one the spam filter covers: a community's announcements
+// group, or a community subgroup with "general" in its name.
+func (s *Store) SpamWatched(ctx context.Context, chat string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM groups WHERE jid = ?
+		AND (kind = 'announcements' OR (kind = 'subgroup' AND subject LIKE '%general%'))`, chat).Scan(&n)
+	return n > 0, err
+}

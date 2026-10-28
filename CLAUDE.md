@@ -4,5 +4,5 @@
   **chat-agent** (`../chat-agent`), shared with discord-reader. Change it there, not here; this repo only has
   the WhatsApp transport and `src/whatsapp_reader/chat.py`, the adapter. Run both readers' tests after a
   chat-agent change.
-- The bridge only listens. Extensions are plugins (entry-point group `whatsapp_reader.plugins`, bridge
+- The bridge only listens, apart from opt-in spam deletion (`bridge/spam.go`, delete-for-me only). Extensions are plugins (entry-point group `whatsapp_reader.plugins`, bridge
   `local_*.go`) and live outside this repo.

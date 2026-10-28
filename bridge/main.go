@@ -6,7 +6,8 @@
 // sees messages the moment they arrive (and gets a backlog via history sync
 // when first paired). Nothing is sent to WhatsApp except what the protocol
 // needs to stay connected, plus, for `whatsapp-reader download` of an attachment whose keys
-// it never saw, a request to the account's own phone to resend that message. It never posts
+// it never saw, a request to the account's own phone to resend that message, and, with
+// [bridge] delete_spam, "delete for me" of spam in community groups (spam.go). It never posts
 // to a chat, reads receipts are not sent.
 package main
 
@@ -242,6 +243,7 @@ func (b *bridge) handle(ctx context.Context, evt any, connected chan struct{}) {
 		b.historySync(ctx, e)
 	case *events.Message:
 		b.message(ctx, e)
+		b.filterSpam(ctx, e)
 	}
 }
 
