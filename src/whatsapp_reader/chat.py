@@ -1,6 +1,6 @@
 """The chat-agent adapter for one allowlisted group: `whatsapp-reader agent` and `follow` run chat-agent on it."""
 
-from chatagent import Msg
+from chatagent import Chat, Msg
 
 from . import config as cfg
 from . import plugins
@@ -17,7 +17,7 @@ def replies_to_bot(m: Message, prefix: str) -> bool:
     return m.quoted_from_me and bool(prefix) and (m.quoted or "").startswith(prefix)
 
 
-class WhatsAppChat:
+class WhatsAppChat(Chat):
     platform, issue_label = "WhatsApp", "whatsapp"
     who_is_me = '"Me" in the transcript is the person who runs this bridge.'
     names: tuple[str, ...] = ()
