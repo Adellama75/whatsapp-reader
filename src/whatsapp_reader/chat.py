@@ -1,6 +1,6 @@
 """The chat-agent adapter for one allowlisted group: `whatsapp-reader agent` and `follow` run chat-agent on it."""
 
-from chatagent import Chat, Msg
+from chatagent import Chat, Msg, ReadOnly
 
 from . import config as cfg
 from . import plugins
@@ -50,3 +50,21 @@ class WhatsAppChat(Chat):
 
     def side_events(self) -> list[str]:
         return []
+
+    # --- writes (chatagent.Chat contract) -----------------------------------
+    # WhatsApp is read-only here: the bridge only reads (it has no outbox) and
+    # posting is not sanctioned, so every write raises ReadOnly. If WhatsApp
+    # writing is ever enabled, a posting plugin + a bridge outbox would back these.
+    _READ_ONLY = "WhatsApp is read-only here: the bridge reads only (no outbox) and posting isn't sanctioned."
+
+    def send(self, text: str, reply_to: str | None = None) -> str:
+        raise ReadOnly(self._READ_ONLY)
+
+    def react(self, msg_id: str, emoji: str, *, remove: bool = False) -> None:
+        raise ReadOnly(self._READ_ONLY)
+
+    def edit(self, msg_id: str, text: str) -> str:
+        raise ReadOnly(self._READ_ONLY)
+
+    def delete(self, msg_id: str) -> None:
+        raise ReadOnly(self._READ_ONLY)

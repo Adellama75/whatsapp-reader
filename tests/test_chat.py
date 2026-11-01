@@ -222,3 +222,21 @@ def test_a_live_coordinator_takes_the_replies(agent_run, db, monkeypatch):
     out = agent_run("agent", "--dry-run")
     assert "WhatsApp chat \"Robotics Soc\"" in out and "Label `whatsapp`" in out and '"Me" in the transcript' in out
     assert "no way to write to the chat" in out  # no plugin: the issues are the whole output
+
+
+def test_whatsapp_writes_are_read_only():
+    """WhatsApp has no outbox here; every Chat write action refuses with ReadOnly."""
+    from types import SimpleNamespace
+
+    from chatagent import ReadOnly
+    from whatsapp_reader.chat import WhatsAppChat
+
+    c = SimpleNamespace(data_dir=Path("."))
+    g = SimpleNamespace(label="Robotics Soc", jid="x@g.us")
+    chat = WhatsAppChat(c, g, prefix="🤖", transcript=lambda *a, **k: "")
+    for action in (lambda: chat.send("hi"),
+                   lambda: chat.react("1", "\U0001f44d"),
+                   lambda: chat.edit("1", "x"),
+                   lambda: chat.delete("1")):
+        with pytest.raises(ReadOnly):
+            action()
