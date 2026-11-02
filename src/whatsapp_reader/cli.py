@@ -7,6 +7,8 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from chatagent import BUG_HELP
+
 from . import config as cfg
 from .pseudonymise import MENTION, load_or_create_secret, transcript
 from .store import (
@@ -254,7 +256,7 @@ def cmd_link(c: cfg.Config, args) -> None:
 def main() -> None:
     import argparse
 
-    p = argparse.ArgumentParser(prog="whatsapp-reader")
+    p = argparse.ArgumentParser(prog="whatsapp-reader", epilog=BUG_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
     # WHATSAPP_READER_CONFIG lets subprocesses (tools Claude runs under `whatsapp-reader agent`) find the same config
     # from any working directory.
     p.add_argument("--config", type=Path, default=Path(os.environ.get("WHATSAPP_READER_CONFIG", "config.toml")))
