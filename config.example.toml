@@ -13,7 +13,8 @@ bridge = "bridge/whatsapp-reader-bridge"
 # of recent chats). Only takes effect at `whatsapp-reader link` time.
 history_days = 0
 # Delete for me (on every device, nobody else affected) ticket-resale and similar spam as it arrives in each
-# community's announcements group and any community subgroup named "General". Off unless set; see bridge/spam.go.
+# community's announcements group and subgroups, and the "deleted by admin" placeholders there. Off unless set;
+# see bridge/spam.go.
 # delete_spam = true
 
 [summariser]

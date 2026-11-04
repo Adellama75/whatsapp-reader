@@ -8,15 +8,17 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
 // Spam filter. With [bridge] delete_spam = true, a message that looks like ticket-resale or
-// get-rich spam, posted to a community's announcements group or a subgroup named "General", is
+// get-rich spam, posted to a community's announcements group or any of its subgroups, is
 // deleted for me: removed from this account on every device, as if deleted by hand on the phone.
-// Nothing changes for other members. It runs on any joined community, allowlisted or not, but
+// So is the "deleted by admin" placeholder an admin leaves behind there. Nothing changes for
+// other members. It runs on any joined community, allowlisted or not, but
 // keeps nothing: the log names only the group, the message id and the rule that matched.
 
 var (
@@ -55,19 +57,40 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 		time.Since(info.Timestamp) > 10*time.Minute {
 		return
 	}
-	_, text := textOf(evt.Message)
-	rule := spamRule(text)
+	id, sender, rule := info.ID, info.Sender, ""
+	if target, author, ok := adminRevoke(evt); ok {
+		id, sender, rule = target, author, "deleted by admin"
+	} else {
+		_, text := textOf(evt.Message)
+		rule = spamRule(text)
+	}
 	if rule == "" {
 		return
 	}
 	if watched, err := b.store.SpamWatched(ctx, info.Chat.String()); err != nil || !watched {
 		return
 	}
-	if err := b.cli.SendAppState(ctx, buildDeleteForMe(info.Chat, info.Sender, info.ID, info.Timestamp)); err != nil {
-		log.Printf("deleting spam %s in %s: %v", info.ID, info.Chat, err)
+	if err := b.cli.SendAppState(ctx, buildDeleteForMe(info.Chat, sender, id, info.Timestamp)); err != nil {
+		log.Printf("deleting spam %s in %s: %v", id, info.Chat, err)
 		return
 	}
-	log.Printf("deleted spam %s in %s for me (%s)", info.ID, info.Chat, rule)
+	log.Printf("deleted spam %s in %s for me (%s)", id, info.Chat, rule)
+}
+
+// adminRevoke recognises an admin deleting someone else's message, which leaves a "deleted by
+// admin" placeholder, and returns that message's id and author. A sender deleting their own
+// message, or anyone deleting ours, doesn't count. Its own timestamp isn't known (unallowlisted
+// groups aren't stored), so the delete-for-me carries the time of the admin's delete instead.
+func adminRevoke(evt *events.Message) (types.MessageID, types.JID, bool) {
+	pm := evt.Message.GetProtocolMessage()
+	if pm.GetType() != waE2E.ProtocolMessage_REVOKE || pm.GetKey().GetFromMe() {
+		return "", types.JID{}, false
+	}
+	author, err := types.ParseJID(pm.GetKey().GetParticipant())
+	if err != nil || author.User == "" || author.User == evt.Info.Sender.User || author.User == evt.Info.SenderAlt.User {
+		return "", types.JID{}, false
+	}
+	return pm.GetKey().GetID(), author, true
 }
 
 // buildDeleteForMe is the app state patch the phone sends for "Delete for me" on someone

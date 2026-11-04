@@ -106,9 +106,10 @@ commands and agent tools; bridge additions go in `bridge/local_*.go`. None ship 
 
 ## Spam filter
 
-With `delete_spam = true` under `[bridge]`, the bridge watches each community's announcements group and any
-community subgroup named "General" (whether or not they are allowlisted) and deletes for you messages that look like
-ticket resale ("selling 2 tickets, can't make it, DM me"), crypto/get-rich offers or giveaway bait. It is the same
+With `delete_spam = true` under `[bridge]`, the bridge watches each community's announcements group and all its
+subgroups (whether or not they are allowlisted) and deletes for you messages that look like ticket resale
+("selling 2 tickets, can't make it, DM me"), crypto/get-rich offers or giveaway bait, and the "deleted by admin"
+placeholder left when an admin removes someone's message. It is the same
 as "Delete for me" on the phone: gone from all your devices, untouched for everyone else, and not recoverable.
 Your phone may still have shown a notification by then; mute those groups to avoid that. Nothing of the message is
 kept; the bridge log names the group, message id and matched rule. The rules are in `bridge/spam.go`.

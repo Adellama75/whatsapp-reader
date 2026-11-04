@@ -67,6 +67,9 @@ func main() {
 	}
 }
 
+// logLevel is whatsmeow's log level; DEBUG shows group fields it doesn't parse, among much else.
+var logLevel = flag.String("log-level", "WARN", "whatsmeow log level (DEBUG shows group fields it doesn't parse)")
+
 func run(dataDir, configPath string, pair bool, phone, qrStyle string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -100,7 +103,7 @@ func run(dataDir, configPath string, pair bool, phone, qrStyle string) error {
 		return err
 	}
 
-	b := &bridge{cli: whatsmeow.NewClient(device, waLog.Stdout("whatsmeow", "WARN", false)), store: st, allow: allow, dataDir: dataDir}
+	b := &bridge{cli: whatsmeow.NewClient(device, waLog.Stdout("whatsmeow", *logLevel, false)), store: st, allow: allow, dataDir: dataDir}
 	connected := make(chan struct{}, 1)
 	b.cli.AddEventHandler(func(evt any) { b.handle(ctx, evt, connected) })
 

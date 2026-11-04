@@ -4,7 +4,11 @@ import (
 	"testing"
 	"time"
 
+	"go.mau.fi/whatsmeow/proto/waCommon"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestSpamRule(t *testing.T) {
@@ -35,5 +39,33 @@ func TestBuildDeleteForMe(t *testing.T) {
 	}
 	if a := p.Mutations[0].Value.GetDeleteMessageForMeAction(); a.GetMessageTimestamp() != 1700000000 {
 		t.Fatalf("action %v", a)
+	}
+}
+
+func TestAdminRevoke(t *testing.T) {
+	admin, _ := types.ParseJID("111@lid")
+	adminPN, _ := types.ParseJID("447700900111@s.whatsapp.net")
+	revoke := func(participant string, fromMe bool) *events.Message {
+		return &events.Message{
+			Info: types.MessageInfo{MessageSource: types.MessageSource{Sender: admin, SenderAlt: adminPN}},
+			Message: &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+				Type: waE2E.ProtocolMessage_REVOKE.Enum(),
+				Key:  &waCommon.MessageKey{ID: proto.String("ORIG"), Participant: proto.String(participant), FromMe: proto.Bool(fromMe)},
+			}},
+		}
+	}
+	if id, author, ok := adminRevoke(revoke("222:3@lid", false)); !ok || id != "ORIG" || author.User != "222" {
+		t.Fatalf("admin delete: %v %v %v", id, author, ok)
+	}
+	for name, evt := range map[string]*events.Message{
+		"own delete":      revoke("111@lid", false),
+		"own delete (PN)": revoke("447700900111@s.whatsapp.net", false),
+		"our message":     revoke("222@lid", true),
+		"no participant":  revoke("", false),
+		"not a revoke":    {Info: types.MessageInfo{MessageSource: types.MessageSource{Sender: admin}}, Message: &waE2E.Message{Conversation: proto.String("hi")}},
+	} {
+		if _, _, ok := adminRevoke(evt); ok {
+			t.Errorf("%s: counted as an admin delete", name)
+		}
 	}
 }
