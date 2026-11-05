@@ -69,3 +69,17 @@ func TestAdminRevoke(t *testing.T) {
 		}
 	}
 }
+
+func TestRecentMessages(t *testing.T) {
+	var r recentMessages
+	chat, _ := types.ParseJID("120363000000000000@g.us")
+	sender, _ := types.ParseJID("222@lid")
+	at := time.Unix(1700000000, 0)
+	r.put(chat, "ORIG", sender, at)
+	if s, a, ok := r.get(chat, "ORIG"); !ok || s != sender || !a.Equal(at) {
+		t.Fatalf("got %v %v %v", s, a, ok)
+	}
+	if _, _, ok := r.get(chat, "OTHER"); ok {
+		t.Fatal("unknown message found")
+	}
+}
