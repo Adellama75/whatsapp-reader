@@ -13,14 +13,16 @@ import (
 
 func TestSpamRule(t *testing.T) {
 	for text, want := range map[string]string{
-		"Selling 2 Olivia Rodrigo tickets for the O2, can't make it anymore, DM me":             "ticket resale",
-		"I have 3 tickets for Sabrina Carpenter on Friday, message me if interested":            "ticket resale",
-		"spare tickets for wireless, wa.me/447700900123":                                        "ticket resale",
-		"Made £4000 last week with crypto trading, ask me how":                                  "money",
-		"Giving away my MacBook Pro 2023, first to text me gets it":                             "giveaway",
-		"Winter Ball tickets are on sale now! https://fixr.co/event/123 - DM me with questions": "",
-		"Who's going to the social tonight?":                                                    "",
-		"Reminder: AGM tickets are free, sign up on the SU site":                                "",
+		"Selling 2 Olivia Rodrigo tickets for the O2, can't make it anymore, DM me":                                                              "ticket resale",
+		"I have 3 tickets for Sabrina Carpenter on Friday, message me if interested":                                                             "ticket resale",
+		"spare tickets for wireless, wa.me/447700900123":                                                                                         "ticket resale",
+		"Made £4000 last week with crypto trading, ask me how":                                                                                   "money",
+		"Giving away my MacBook Pro 2023, first to text me gets it":                                                                              "giveaway",
+		"Winter Ball tickets are on sale now! https://fixr.co/event/123 - DM me with questions":                                                  "",
+		"Join us for a fireside chat with a fintech founder: built for investment banking, raised a $160M Series D. Signup https://luma.com/abc": "",
+		"Turn £200 into £2000 with my forex investment plan, DM me":                                                                              "money",
+		"Who's going to the social tonight?":                                                                                                     "",
+		"Reminder: AGM tickets are free, sign up on the SU site":                                                                                 "",
 		"": "",
 	} {
 		if got := spamRule(text); got != want {

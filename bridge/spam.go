@@ -30,10 +30,13 @@ var (
 		`\bi\s*have\s*(\d+|two|three|four|a few|some|spare)\b|\b(i'?m|i am)\s*selling\b|\bselling\s*my\b|` +
 		`\bcan'?t\s*(make|go|attend)\b|\bspare\b|wa\.me/|\+?\d[\d \-]{9,}\d`)
 	// a society's own ticket post links to the place tickets are sold
-	officialSale = regexp.MustCompile(`(?i)fixr\.co|studentsunionucl\.org|ucl\.ac\.uk|eventbrite|dice\.fm|ticketmaster|seetickets`)
+	officialSale = regexp.MustCompile(`(?i)fixr\.co|studentsunionucl\.org|ucl\.ac\.uk|eventbrite|dice\.fm|ticketmaster|seetickets|luma\.com|lu\.ma/|meetup\.com`)
 	money        = regexp.MustCompile(`(?i)\b(crypto|bitcoin|btc|forex|binary options|investment|trading account)\b`)
 	moneyBait    = regexp.MustCompile(`(?i)\b(earn|profit|returns|income|payout)\b|[£$€]\s*\d`)
-	giveaway     = regexp.MustCompile(`(?i)\b(giving away|selling)\s*(my|a|an)?\s*(macbook|iphone|ipad|ps5|playstation|xbox|airpods)\b`)
+	// get-rich spam wants you to get in touch; a talk about a fintech company doesn't
+	moneyHook = regexp.MustCompile(`(?i)\b(dm|pm|inbox|message|text|whatsapp|hmu)\s*me\b|\bask\s*me\b|\bcontact\s*me\b|` +
+		`telegram|t\.me/|wa\.me/|\binterested\s*\?|\+?\d[\d \-]{9,}\d`)
+	giveaway = regexp.MustCompile(`(?i)\b(giving away|selling)\s*(my|a|an)?\s*(macbook|iphone|ipad|ps5|playstation|xbox|airpods)\b`)
 )
 
 // spamRule names the rule a message's text breaks, or "" if it looks fine.
@@ -43,7 +46,7 @@ func spamRule(text string) string {
 		return ""
 	case ticketWord.MatchString(text) && privateSale.MatchString(text) && !officialSale.MatchString(text):
 		return "ticket resale"
-	case money.MatchString(text) && moneyBait.MatchString(text):
+	case money.MatchString(text) && moneyBait.MatchString(text) && moneyHook.MatchString(text) && !officialSale.MatchString(text):
 		return "money"
 	case giveaway.MatchString(text):
 		return "giveaway"
