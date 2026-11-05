@@ -5,7 +5,6 @@ import (
 	"log"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow/appstate"
@@ -58,80 +57,30 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 		time.Since(info.Timestamp) > 10*time.Minute {
 		return
 	}
-	if watched, err := b.store.SpamWatched(ctx, info.Chat.String()); err != nil || !watched {
-		return
-	}
-	id, sender, at, rule := info.ID, info.Sender, info.Timestamp, ""
+	id, sender, rule := info.ID, info.Sender, ""
 	if target, author, ok := adminRevoke(evt); ok {
-		id, rule = target, "deleted by admin"
-		sender, at, ok = b.recent.get(info.Chat, target)
-		if !ok {
-			// Not seen arriving (sent before the bridge started, or too long ago): use the author
-			// from the revoke, as a LID if we know one, since covered groups address by LID.
-			sender, at = author, info.Timestamp
-			if author.Server == types.DefaultUserServer {
-				if lid, err := b.cli.Store.LIDs.GetLIDForPN(ctx, author); err == nil && !lid.IsEmpty() {
-					sender = lid
-				}
-			}
-			log.Printf("admin deleted %s in %s before we saw it arrive; guessing sender %s and time", id, info.Chat, sender.Server)
-		}
+		id, sender, rule = target, author, "deleted by admin"
 	} else {
-		b.recent.put(info.Chat, info.ID, info.Sender, info.Timestamp)
 		_, text := textOf(evt.Message)
 		rule = spamRule(text)
 	}
 	if rule == "" {
 		return
 	}
-	if err := b.cli.SendAppState(ctx, buildDeleteForMe(info.Chat, sender, id, at)); err != nil {
+	if watched, err := b.store.SpamWatched(ctx, info.Chat.String()); err != nil || !watched {
+		return
+	}
+	if err := b.cli.SendAppState(ctx, buildDeleteForMe(info.Chat, sender, id, info.Timestamp)); err != nil {
 		log.Printf("deleting spam %s in %s: %v", id, info.Chat, err)
 		return
 	}
 	log.Printf("deleted spam %s in %s for me (%s)", id, info.Chat, rule)
 }
 
-// recentMessages remembers, in memory only, the sender and time of each message that arrived in a
-// covered group in the last two days, so that the delete-for-me of a message an admin later
-// deletes names it exactly as the phone has it. No text is kept.
-type recentMessages struct {
-	mu   sync.Mutex
-	seen map[string]recentMessage
-}
-
-type recentMessage struct {
-	sender types.JID
-	at     time.Time
-}
-
-const recentFor = 48 * time.Hour
-
-func (r *recentMessages) put(chat types.JID, id types.MessageID, sender types.JID, at time.Time) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.seen == nil {
-		r.seen = map[string]recentMessage{}
-	}
-	if len(r.seen)%1000 == 999 {
-		for k, m := range r.seen {
-			if time.Since(m.at) > recentFor {
-				delete(r.seen, k)
-			}
-		}
-	}
-	r.seen[chat.String()+"/"+id] = recentMessage{sender, at}
-}
-
-func (r *recentMessages) get(chat types.JID, id types.MessageID) (types.JID, time.Time, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	m, ok := r.seen[chat.String()+"/"+id]
-	return m.sender, m.at, ok
-}
-
 // adminRevoke recognises an admin deleting someone else's message, which leaves a "deleted by
 // admin" placeholder, and returns that message's id and author. A sender deleting their own
-// message, or anyone deleting ours, doesn't count.
+// message, or anyone deleting ours, doesn't count. Its own timestamp isn't known (unallowlisted
+// groups aren't stored), so the delete-for-me carries the time of the admin's delete instead.
 func adminRevoke(evt *events.Message) (types.MessageID, types.JID, bool) {
 	pm := evt.Message.GetProtocolMessage()
 	if pm.GetType() != waE2E.ProtocolMessage_REVOKE || pm.GetKey().GetFromMe() {

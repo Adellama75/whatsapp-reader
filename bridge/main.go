@@ -45,8 +45,7 @@ type bridge struct {
 	cli     *whatsmeow.Client
 	store   *Store
 	allow   *Allowlist
-	dataDir string         // attachments go to <dataDir>/attachments, download requests come in <dataDir>/requests
-	recent  recentMessages // spam.go: who sent what when in covered groups, for admin deletes
+	dataDir string // attachments go to <dataDir>/attachments, download requests come in <dataDir>/requests
 }
 
 // plugins run once the bridge is connected, each in its own goroutine until shutdown. Site-specific
