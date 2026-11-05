@@ -15,7 +15,8 @@ import (
 )
 
 // Spam filter. With [bridge] delete_spam = true, a message that looks like ticket-resale or
-// get-rich spam, posted to a community's announcements group or any of its subgroups, is
+// get-rich spam, posted to a community's announcements group or any of its subgroups (or to a
+// group listed in [bridge] spam_groups), is
 // deleted for me: removed from this account on every device, as if deleted by hand on the phone.
 // So is the "deleted by admin" placeholder an admin leaves behind there. Nothing changes for
 // other members. It runs on any joined community, allowlisted or not, but
@@ -67,8 +68,10 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 	if rule == "" {
 		return
 	}
-	if watched, err := b.store.SpamWatched(ctx, info.Chat.String()); err != nil || !watched {
-		return
+	if !b.allow.SpamGroup(info.Chat.String()) {
+		if watched, err := b.store.SpamWatched(ctx, info.Chat.String()); err != nil || !watched {
+			return
+		}
 	}
 	if err := b.cli.SendAppState(ctx, buildDeleteForMe(info.Chat, sender, id, info.Timestamp)); err != nil {
 		log.Printf("deleting spam %s in %s: %v", id, info.Chat, err)

@@ -16,6 +16,7 @@ history_days = 0
 # community's announcements group and subgroups, and the "deleted by admin" placeholders there. Off unless set;
 # see bridge/spam.go.
 # delete_spam = true
+# spam_groups = ["123456789-123456@g.us"]  # other groups to cover too (JIDs from `whatsapp-reader index`)
 
 [summariser]
 model = "claude-opus-5-5"
