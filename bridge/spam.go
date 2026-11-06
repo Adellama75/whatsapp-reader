@@ -69,14 +69,17 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 	}
 	id, sender, at, rule := info.ID, info.Sender, info.Timestamp, ""
 	if target, author, ok := adminRevoke(evt); ok {
-		id, rule = target, "deleted by admin"
+		// The phone files the "deleted by admin" placeholder under the admin's revoke message id,
+		// with the original author and the original message's time (seen in a delete-for-me made
+		// on the phone, 2026-11-06), so that is what our delete-for-me names.
+		rule = "deleted by admin"
 		var seen bool
 		sender, at, seen = b.recent.get(info.Chat, target)
 		how := "as it arrived"
 		if !seen {
 			how = "guessed"
-			// Not seen arriving (sent before the bridge started, or too long ago): use the author
-			// from the revoke, as a LID if we know one, since covered groups address by LID.
+			// Not seen arriving (sent before the bridge started, or too long ago): the author
+			// from the revoke, as a LID if we know one, and the revoke's own time.
 			sender, at = author, info.Timestamp
 			if author.Server == types.DefaultUserServer {
 				if lid, err := b.cli.Store.LIDs.GetLIDForPN(ctx, author); err == nil && !lid.IsEmpty() {
@@ -84,9 +87,8 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 				}
 			}
 		}
-		// Diagnostics while it's unproven: which sender form and time the delete-for-me names.
-		log.Printf("admin deleted %s in %s: author %s from revoke, using sender %s msg_ts %d (%s)",
-			id, info.Chat, author, sender.ToNonAD(), at.Unix(), how)
+		log.Printf("admin deleted %s in %s (revoke %s): author %s, using sender %s msg_ts %d (%s)",
+			target, info.Chat, id, author, sender.ToNonAD(), at.Unix(), how)
 	} else {
 		b.recent.put(info.Chat, info.ID, info.Sender, info.Timestamp)
 		_, text := textOf(evt.Message)
