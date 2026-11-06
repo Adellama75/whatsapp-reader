@@ -85,8 +85,8 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 			}
 		}
 		// Diagnostics while it's unproven: which sender form and time the delete-for-me names.
-		log.Printf("admin deleted %s in %s: author %s from revoke, using sender %s at %s (%s)",
-			id, info.Chat, author.Server, sender.Server, at.Format("15:04:05"), how)
+		log.Printf("admin deleted %s in %s: author %s from revoke, using sender %s msg_ts %d (%s)",
+			id, info.Chat, author, sender.ToNonAD(), at.Unix(), how)
 	} else {
 		b.recent.put(info.Chat, info.ID, info.Sender, info.Timestamp)
 		_, text := textOf(evt.Message)

@@ -248,6 +248,10 @@ func (b *bridge) handle(ctx context.Context, evt any, connected chan struct{}) {
 	case *events.Message:
 		b.message(ctx, e)
 		b.filterSpam(ctx, e)
+	case *events.DeleteForMe:
+		// Diagnostics (spam.go): a "delete for me" made on another device, to compare with ours.
+		log.Printf("delete-for-me from another device: chat %s id %s from_me %v sender %s msg_ts %d delete_media %v full_sync %v",
+			e.ChatJID, e.MessageID, e.IsFromMe, e.SenderJID, e.Action.GetMessageTimestamp(), e.Action.GetDeleteMedia(), e.FromFullSync)
 	}
 }
 
