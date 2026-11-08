@@ -26,6 +26,7 @@ type Allowlist struct {
 	HistoryDays uint32
 	deleteSpam  bool            // [bridge] delete_spam: see spam.go
 	spamGroups  map[string]bool // [bridge] spam_groups: groups outside communities the filter also covers
+	spamModel   string          // [bridge] spam_model: the Claude model that screens what the rules pass (spam_model.go)
 }
 
 type configFile struct {
@@ -37,6 +38,7 @@ type configFile struct {
 		HistoryDays uint32   `toml:"history_days"`
 		DeleteSpam  bool     `toml:"delete_spam"`
 		SpamGroups  []string `toml:"spam_groups"`
+		SpamModel   string   `toml:"spam_model"`
 	} `toml:"bridge"`
 }
 
@@ -72,6 +74,7 @@ func (a *Allowlist) reload() error {
 		a.spamGroups[j] = true
 	}
 	a.jids, a.mod, a.HistoryDays, a.deleteSpam = jids, st.ModTime(), c.Bridge.HistoryDays, c.Bridge.DeleteSpam
+	a.spamModel = c.Bridge.SpamModel
 	return nil
 }
 
@@ -106,4 +109,11 @@ func (a *Allowlist) SpamGroup(jid string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.spamGroups[jid]
+}
+
+// SpamModel is [bridge] spam_model ("" when unset).
+func (a *Allowlist) SpamModel() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.spamModel
 }

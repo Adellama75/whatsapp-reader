@@ -113,7 +113,10 @@ placeholder left when an admin removes someone's message. Groups outside communi
 `spam_groups = [...]`, also under `[bridge]`. It is the same
 as "Delete for me" on the phone: gone from all your devices, untouched for everyone else, and not recoverable.
 Your phone may still have shown a notification by then; mute those groups to avoid that. Nothing of the message is
-kept; the bridge log names the group, message id and matched rule. The rules are in `bridge/spam.go`.
+kept; the bridge log names the group, message id and verdict for every message it checks. The rules are in
+`bridge/spam.go`. With `spam_model = "claude-haiku-5-5"` too (and `ANTHROPIC_API_KEY` in the bridge's
+environment), a message the rules pass is shown to that Claude model, text only, which answers spam or ok
+(`bridge/spam_model.go`).
 
 ## Groups that have agreed to real names
 

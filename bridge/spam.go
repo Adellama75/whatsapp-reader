@@ -21,7 +21,8 @@ import (
 // deleted for me: removed from this account on every device, as if deleted by hand on the phone.
 // So is the "deleted by admin" placeholder an admin leaves behind there. Nothing changes for
 // other members. It runs on any joined community, allowlisted or not, but
-// keeps nothing: the log names only the group, the message id and the rule that matched.
+// keeps nothing: the log names only the group, the message id and the verdict, for every message it
+// checks. A message the rules pass goes to [bridge] spam_model when set (spam_model.go).
 
 var (
 	ticketWord = regexp.MustCompile(`(?i)\btickets?\b`)
@@ -92,16 +93,42 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 	} else {
 		b.recent.put(info.Chat, info.ID, info.Sender, info.Timestamp)
 		_, text := textOf(evt.Message)
-		rule = spamRule(text)
+		if strings.TrimSpace(text) == "" {
+			return // reactions, polls, media without a caption: nothing to judge
+		}
+		if rule = spamRule(text); rule == "" {
+			model := b.allow.SpamModel()
+			if model == "" {
+				log.Printf("spam check %s in %s: kept (no rule matched)", id, info.Chat)
+				return
+			}
+			go func() { // the model takes a second or two: keep the event handler free
+				spam, err := classifySpam(ctx, model, text)
+				switch {
+				case err != nil:
+					log.Printf("spam check %s in %s: kept (no rule matched; model failed: %v)", id, info.Chat, err)
+				case !spam:
+					log.Printf("spam check %s in %s: kept (no rule matched; model says ok)", id, info.Chat)
+				default:
+					b.deleteSpam(ctx, info.Chat, sender, id, at, "model")
+				}
+			}()
+			return
+		}
 	}
 	if rule == "" {
 		return
 	}
-	if err := b.cli.SendAppState(ctx, buildDeleteForMe(info.Chat, sender, id, at)); err != nil {
-		log.Printf("deleting spam %s in %s: %v", id, info.Chat, err)
+	b.deleteSpam(ctx, info.Chat, sender, id, at, rule)
+}
+
+// deleteSpam deletes one message for me and logs it by id (never its text).
+func (b *bridge) deleteSpam(ctx context.Context, chat, sender types.JID, id types.MessageID, at time.Time, rule string) {
+	if err := b.cli.SendAppState(ctx, buildDeleteForMe(chat, sender, id, at)); err != nil {
+		log.Printf("deleting spam %s in %s: %v", id, chat, err)
 		return
 	}
-	log.Printf("deleted spam %s in %s for me (%s)", id, info.Chat, rule)
+	log.Printf("deleted spam %s in %s for me (%s)", id, chat, rule)
 }
 
 // recentMessages remembers, in memory only, the sender and time of each message that arrived in a
