@@ -26,7 +26,7 @@ import (
 var (
 	ticketWord = regexp.MustCompile(`(?i)\btickets?\b`)
 	// someone selling privately: asks to be contacted, or has spare tickets of their own
-	privateSale = regexp.MustCompile(`(?i)\b(dm|pm|inbox|message|text|whatsapp|hmu)\s*me\b|` +
+	privateSale = regexp.MustCompile(`(?i)\b(dm|pm|inbox|message|text|whatsapp|hmu)\s*(me|if)\b|\binterested\s*\?|` +
 		`\bi\s*have\s*(\d+|two|three|four|a few|some|spare)\b|\b(i'?m|i am)\s*selling\b|\bselling\s*my\b|` +
 		`\bcan'?t\s*(make|go|attend)\b|\bspare\b|wa\.me/|\+?\d[\d \-]{9,}\d`)
 	// a society's own ticket post links to the place tickets are sold

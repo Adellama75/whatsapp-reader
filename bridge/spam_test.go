@@ -21,6 +21,9 @@ func TestSpamRule(t *testing.T) {
 		"Winter Ball tickets are on sale now! https://fixr.co/event/123 - DM me with questions":                                                  "",
 		"Join us for a fireside chat with a fintech founder: built for investment banking, raised a $160M Series D. Signup https://luma.com/abc": "",
 		"Turn £200 into £2000 with my forex investment plan, DM me":                                                                              "money",
+		"3x Olivia Rodrigo tickets 🎟️💜\nO2 Arena, London | 9 April 2027\nDM if interested!":                                                      "ticket resale", // seen 2026-11-08
+		"2 Wireless tickets, interested?":                                                                                                        "ticket resale",
+		"Hackathon tickets go live Friday, DM for questions about the event":                                                                     "",
 		"Who's going to the social tonight?":                                                                                                     "",
 		"Reminder: AGM tickets are free, sign up on the SU site":                                                                                 "",
 		"": "",
