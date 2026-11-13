@@ -103,7 +103,7 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 				return
 			}
 			go func() { // the model takes a second or two: keep the event handler free
-				spam, err := classifySpam(ctx, model, text)
+				spam, err := classifySpam(ctx, model, b.groupName(ctx, info.Chat), text)
 				switch {
 				case err != nil:
 					log.Printf("spam check %s in %s: kept (no rule matched; model failed: %v)", id, info.Chat, err)

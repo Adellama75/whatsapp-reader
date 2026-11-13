@@ -25,12 +25,12 @@ func TestClassifySpam(t *testing.T) {
 	anthropicURL = srv.URL
 	t.Setenv("ANTHROPIC_API_KEY", "test")
 	for text, want := range map[string]bool{"3x tickets, DM if interested": true, "see you at the social": false} {
-		if got, err := classifySpam(context.Background(), "m", text); err != nil || got != want {
+		if got, err := classifySpam(context.Background(), "m", "g", text); err != nil || got != want {
 			t.Errorf("classifySpam(%q) = %v, %v; want %v", text, got, err, want)
 		}
 	}
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	if _, err := classifySpam(context.Background(), "m", "x"); err == nil {
+	if _, err := classifySpam(context.Background(), "m", "g", "x"); err == nil {
 		t.Error("want an error without a key")
 	}
 }
