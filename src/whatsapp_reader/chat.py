@@ -4,7 +4,7 @@ from chatagent import Chat, Msg, ReadOnly
 
 from . import config as cfg
 from . import plugins
-from .store import Message, last_rowid, messages_after, messages_before
+from .store import Message, edits_after, last_edit, last_rowid, messages_after, messages_before
 
 
 def is_bot(m: Message, prefix: str) -> bool:
@@ -24,6 +24,7 @@ class WhatsAppChat(Chat):
 
     def __init__(self, c: cfg.Config, g: cfg.Group, prefix: str, transcript):
         self.c, self.g, self.prefix, self.transcript = c, g, prefix, transcript
+        self._edits: int | None = None  # edited_at cursor for side_events
         self.label, self.data_dir = g.label, c.data_dir
         self.attachments = str(c.data_dir / "attachments")
         self.tools = plugins.agent_tools()
@@ -49,7 +50,16 @@ class WhatsAppChat(Chat):
         return self.transcript(self.c, self.g, [m.raw for m in msgs], to_claude=flag, ids=ids)
 
     def side_events(self) -> list[str]:
-        return []
+        """Messages edited since the last call, re-shown with their new text (the first call sets the start)."""
+        if not self.c.live_db.exists():
+            return []
+        if self._edits is None:  # start from now: old edits are already in the transcript
+            self._edits = last_edit(self.c.live_db, self.g.jid)
+            return []
+        msgs, self._edits = edits_after(self.c.live_db, self.g.jid, self._edits)
+        if not msgs:
+            return []
+        return ["(edited) " + line for line in self.transcript(self.c, self.g, msgs, ids=True).splitlines()]
 
     # --- writes (chatagent.Chat contract) -----------------------------------
     # WhatsApp is read-only here: the bridge only reads (it has no outbox) and

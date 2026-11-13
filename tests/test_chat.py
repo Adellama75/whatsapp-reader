@@ -240,3 +240,20 @@ def test_whatsapp_writes_are_read_only():
                    lambda: chat.delete("1")):
         with pytest.raises(ReadOnly):
             action()
+
+
+def test_follow_reshows_an_edited_message(agent_run, db, monkeypatch):
+    """Bug 18: an edit changes a stored row in place, so follow shows it again, marked (edited)."""
+    with sqlite3.connect(db) as conn:
+        conn.execute("ALTER TABLE messages ADD COLUMN edited_at INTEGER")
+        target = conn.execute("SELECT id FROM messages WHERE chat_jid = ? ORDER BY rowid LIMIT 1", (GROUP,)).fetchone()[0]
+
+    def edit_once(s):  # between the two polls, the bridge stores an edit
+        with sqlite3.connect(db) as conn:
+            conn.execute("UPDATE messages SET text = '2,3,6', edited_at = 2000000000 WHERE id = ? AND text != '2,3,6'", (target,))
+
+    monkeypatch.setattr(ca_loop.time, "sleep", edit_once)
+    out = agent_run("follow", "--polls", "2")
+    assert f"(edited) [" in out and f"#{target}]" in out and "2,3,6" in out
+    out = agent_run("follow", "--polls", "1")  # a fresh follower does not replay old edits
+    assert "(edited)" not in out

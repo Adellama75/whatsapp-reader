@@ -45,6 +45,7 @@ var migrations = []string{
 	`ALTER TABLE messages ADD COLUMN file TEXT`,         // saved attachment path, for groups with save_media = true
 	`ALTER TABLE messages ADD COLUMN media BLOB`,        // attachment keys (see mediaOf), to download it later
 	`ALTER TABLE messages ADD COLUMN poll_options TEXT`, // a poll's option names (JSON), which votes name by hash
+	`ALTER TABLE messages ADD COLUMN edited_at INTEGER`, // when an edit last changed the text, so follow re-shows it
 }
 
 func OpenStore(path string) (*Store, error) {
@@ -122,15 +123,17 @@ func (s *Store) PutMessage(ctx context.Context, m Msg) error {
 		INSERT INTO messages (chat_jid, id, sender, from_me, ts, kind, text, reply_to, media, poll_options)
 		VALUES (?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT (chat_jid, id) DO UPDATE SET kind = excluded.kind, text = excluded.text,
-			media = COALESCE(excluded.media, media), poll_options = COALESCE(excluded.poll_options, poll_options)`,
-		m.ChatJID, m.ID, m.Sender, m.FromMe, m.At.Unix(), m.Kind, m.Text, reply, m.Media, poll)
+			media = COALESCE(excluded.media, media), poll_options = COALESCE(excluded.poll_options, poll_options),
+			edited_at = CASE WHEN excluded.text != text THEN ? ELSE edited_at END`,
+		m.ChatJID, m.ID, m.Sender, m.FromMe, m.At.Unix(), m.Kind, m.Text, reply, m.Media, poll, time.Now().Unix())
 	return err
 }
 
-// EditMessage replaces the text of a stored message; returns how many rows matched (0: unknown ID).
+// EditMessage replaces the text of a stored message, stamping edited_at if it changed; returns how many rows matched (0: unknown ID).
 func (s *Store) EditMessage(ctx context.Context, chat, id, kind, text string) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `UPDATE messages SET kind = ?, text = ? WHERE chat_jid = ? AND id = ?`,
-		kind, text, chat, id)
+	res, err := s.db.ExecContext(ctx, `UPDATE messages SET kind = ?, text = ?,
+		edited_at = CASE WHEN text != ? THEN ? ELSE edited_at END WHERE chat_jid = ? AND id = ?`,
+		kind, text, text, time.Now().Unix(), chat, id)
 	if err != nil {
 		return 0, err
 	}

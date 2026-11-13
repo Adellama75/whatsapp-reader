@@ -164,6 +164,24 @@ def messages_after(db: Path, chat_jid: str, rowid: int) -> list[Message]:
         return _messages(conn, "m.chat_jid = ? AND m.rowid > ?", (chat_jid, rowid))
 
 
+def last_edit(db: Path, chat_jid: str) -> int:
+    """The newest edited_at in one group (0 if none, or an archive from an older bridge)."""
+    with _connect(db) as conn:
+        if "edited_at" not in _columns(conn, "messages"):
+            return 0
+        return conn.execute("SELECT max(edited_at) FROM messages WHERE chat_jid = ?", (chat_jid,)).fetchone()[0] or 0
+
+
+def edits_after(db: Path, chat_jid: str, since: int) -> tuple[list[Message], int]:
+    """Messages in one group whose text an edit changed after `since` (edited_at, unix seconds), and
+    the newest edited_at seen: what follow re-shows as "(edited)". Archives from older bridges have none."""
+    with _connect(db) as conn:
+        if "edited_at" not in _columns(conn, "messages"):
+            return [], since
+        top = conn.execute("SELECT max(edited_at) FROM messages WHERE chat_jid = ?", (chat_jid,)).fetchone()[0] or 0
+        return _messages(conn, "m.chat_jid = ? AND m.edited_at > ?", (chat_jid, since)), max(since, top)
+
+
 def messages_before(db: Path, chat_jid: str, rowid: int, n: int) -> list[Message]:
     """The n messages stored before a given row, oldest first (context for `whatsapp-reader agent`)."""
     with _connect(db) as conn:
