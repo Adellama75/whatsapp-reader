@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,11 +20,26 @@ import (
 // no sender.
 
 const spamPrompt = `You screen messages posted in UK university society and course WhatsApp groups.
-Answer "spam" only when the message is clearly spam: reselling concert/event tickets privately,
-crypto/forex/get-rich schemes, device giveaways, fake jobs or "easy money", or advertising that has
-nothing to do with the group and asks people to DM or pay. Answer "ok" for everything else, including
-bare links, links to members' own projects or tools, a society's own events and official ticket
-links, questions, chat, jokes and announcements. When unsure, answer "ok". Answer with one word.`
+Spam is a message that uses the group as an audience for the sender's own ask, when that ask has
+nothing to do with what the group is for: it offers, sells, gives away or promises something, or
+appeals for money or help, and wants readers to contact the sender privately, pay, donate or follow
+a link. Typical forms: private resale of concert or match tickets, a free camera, laptop or piano
+for whoever messages first, crowdfunding or donation appeals for a family or a cause abroad,
+crypto and "easy money" schemes, fake jobs, unrelated adverts. Such posts often sound kind,
+personal or religious; judge the ask, not the tone.
+Everything that belongs to the group's own life is ok: questions, chat, jokes, announcements, the
+society's own events, charity drives and official ticket links, members looking for teammates,
+flatmates or something to buy, real job or internship openings in the group's field, bare links, and links to members' own projects or tools.
+Answer "spam" only when the message clearly fits the description; when unsure, answer "ok".
+Answer with one word.`
+
+var linkOrSymbol = regexp.MustCompile(`https?://\S+|[^\pL\s]+`)
+
+// judgeable reports whether a text says enough for the model to judge: at least four words besides
+// links. A bare link or a two-word reply carries no ask, and a wrong "spam" there can't be undone.
+func judgeable(text string) bool {
+	return len(strings.Fields(linkOrSymbol.ReplaceAllString(text, " "))) >= 4
+}
 
 var anthropicURL = "https://api.anthropic.com/v1/messages"
 

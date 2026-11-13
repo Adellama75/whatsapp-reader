@@ -88,3 +88,26 @@ func TestRecentMessages(t *testing.T) {
 		t.Fatal("unknown message found")
 	}
 }
+
+func TestSpamBurst(t *testing.T) {
+	var r recentMessages
+	chat, other := types.NewJID("1", types.GroupServer), types.NewJID("2", types.GroupServer)
+	a, b := types.NewJID("10", types.HiddenUserServer), types.NewJID("11", types.HiddenUserServer)
+	now := time.Now()
+	r.put(chat, "old", a, now.Add(-time.Hour))
+	r.put(chat, "pic1", a, now.Add(-5*time.Second))
+	r.put(chat, "spam", a, now)
+	r.put(chat, "pic2", a, now.Add(3*time.Second)) // arrived while the model was still thinking
+	r.put(chat, "bystander", b, now)
+	r.put(other, "elsewhere", a, now)
+	if r.spammer(chat, a) {
+		t.Fatal("nobody is flagged yet")
+	}
+	got := r.flag(chat, a, "spam", now)
+	if len(got) != 2 || got["pic1"].IsZero() || got["pic2"].IsZero() {
+		t.Fatalf("flag returned %v, want pic1 and pic2", got)
+	}
+	if !r.spammer(chat, a) || r.spammer(chat, b) || r.spammer(other, a) {
+		t.Fatal("only the spam's sender, in that group, is flagged")
+	}
+}

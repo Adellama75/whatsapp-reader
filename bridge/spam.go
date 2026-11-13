@@ -21,6 +21,8 @@ import (
 // deleted for me: removed from this account on every device, as if deleted by hand on the phone.
 // So is the "deleted by admin" placeholder an admin leaves behind there. Nothing changes for
 // other members. It runs on any joined community, allowlisted or not, but
+// A spammer's other messages in that group within five minutes (the pictures around a giveaway post)
+// go with it. It
 // keeps nothing: the log names only the group, the message id and the verdict, for every message it
 // checks. A message the rules pass goes to [bridge] spam_model when set (spam_model.go).
 
@@ -92,6 +94,10 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 			target, info.Chat, id, author, sender.ToNonAD(), at.Unix(), how)
 	} else {
 		b.recent.put(info.Chat, info.ID, info.Sender, info.Timestamp)
+		if b.recent.spammer(info.Chat, info.Sender) { // e.g. the pictures that follow a giveaway post
+			b.deleteSpam(ctx, info.Chat, sender, id, at, "same sender as spam just now")
+			return
+		}
 		_, text := textOf(evt.Message)
 		if strings.TrimSpace(text) == "" {
 			return // reactions, polls, media without a caption: nothing to judge
@@ -100,6 +106,10 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 			model := b.allow.SpamModel()
 			if model == "" {
 				log.Printf("spam check %s in %s: kept (no rule matched)", id, info.Chat)
+				return
+			}
+			if !judgeable(text) {
+				log.Printf("spam check %s in %s: kept (no rule matched; too short for the model)", id, info.Chat)
 				return
 			}
 			go func() { // the model takes a second or two: keep the event handler free
@@ -111,6 +121,7 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 					log.Printf("spam check %s in %s: kept (no rule matched; model says ok)", id, info.Chat)
 				default:
 					b.deleteSpam(ctx, info.Chat, sender, id, at, "model")
+					b.deleteAround(ctx, info.Chat, sender, id, at)
 				}
 			}()
 			return
@@ -120,6 +131,21 @@ func (b *bridge) filterSpam(ctx context.Context, evt *events.Message) {
 		return
 	}
 	b.deleteSpam(ctx, info.Chat, sender, id, at, rule)
+	if rule != "deleted by admin" {
+		b.deleteAround(ctx, info.Chat, sender, id, at)
+	}
+}
+
+// spamBurst is how long around a spam message the same sender's other messages in that group go too:
+// spam often comes as one text plus a few pictures.
+const spamBurst = 5 * time.Minute
+
+// deleteAround deletes what the sender of a spam message posted in the same group just before it,
+// and marks them so that what they post there in the next few minutes is deleted on arrival.
+func (b *bridge) deleteAround(ctx context.Context, chat, sender types.JID, id types.MessageID, at time.Time) {
+	for mid, mat := range b.recent.flag(chat, sender, id, at) {
+		b.deleteSpam(ctx, chat, sender, mid, mat, "same sender as spam just now")
+	}
 }
 
 // deleteSpam deletes one message for me and logs it by id (never its text).
@@ -135,8 +161,9 @@ func (b *bridge) deleteSpam(ctx context.Context, chat, sender types.JID, id type
 // covered group in the last two days, so that the delete-for-me of a message an admin later
 // deletes names it exactly as the phone has it. No text is kept.
 type recentMessages struct {
-	mu   sync.Mutex
-	seen map[string]recentMessage
+	mu       sync.Mutex
+	seen     map[string]recentMessage
+	spammers map[string]time.Time // chat/sender -> when their spam arrived (see spamBurst)
 }
 
 type recentMessage struct {
@@ -167,6 +194,38 @@ func (r *recentMessages) get(chat types.JID, id types.MessageID) (types.JID, tim
 	defer r.mu.Unlock()
 	m, ok := r.seen[chat.String()+"/"+id]
 	return m.sender, m.at, ok
+}
+
+// flag marks a sender as having just spammed a group and returns their other messages there from
+// the spamBurst before `at` (id -> time), not counting the spam message itself.
+func (r *recentMessages) flag(chat, sender types.JID, id types.MessageID, at time.Time) map[types.MessageID]time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.spammers == nil {
+		r.spammers = map[string]time.Time{}
+	}
+	for k, t := range r.spammers {
+		if time.Since(t) > recentFor {
+			delete(r.spammers, k)
+		}
+	}
+	r.spammers[chat.String()+"/"+sender.User] = time.Now()
+	out, prefix := map[types.MessageID]time.Time{}, chat.String()+"/"
+	for k, m := range r.seen {
+		if mid := strings.TrimPrefix(k, prefix); mid != k && mid != id && m.sender.User == sender.User &&
+			at.Sub(m.at).Abs() <= spamBurst {
+			out[mid] = m.at
+		}
+	}
+	return out
+}
+
+// spammer reports whether this sender spammed this group within the last spamBurst.
+func (r *recentMessages) spammer(chat, sender types.JID) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.spammers[chat.String()+"/"+sender.User]
+	return ok && time.Since(t) <= spamBurst
 }
 
 // adminRevoke recognises an admin deleting someone else's message, which leaves a "deleted by

@@ -116,7 +116,9 @@ Your phone may still have shown a notification by then; mute those groups to avo
 kept; the bridge log names the group, message id and verdict for every message it checks. The rules are in
 `bridge/spam.go`. With `spam_model = "claude-haiku-5-5"` too (and `ANTHROPIC_API_KEY` in the bridge's
 environment), a message the rules pass is shown to that Claude model, text only, which answers spam or ok
-(`bridge/spam_model.go`).
+(`bridge/spam_model.go`): spam there means using the group as an audience for an unrelated ask (a sale, a
+giveaway, a donation appeal). A spammer's other messages in that group within five minutes, such as the
+pictures around a giveaway post, are deleted with it. Texts under four words besides links are kept unjudged.
 
 ## Groups that have agreed to real names
 

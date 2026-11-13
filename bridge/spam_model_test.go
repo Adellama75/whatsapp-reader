@@ -34,3 +34,17 @@ func TestClassifySpam(t *testing.T) {
 		t.Error("want an error without a key")
 	}
 }
+
+func TestJudgeable(t *testing.T) {
+	for text, want := range map[string]bool{
+		"https://ucluster-too-qualifier.vercel.app/": false,
+		"lol ok":                             false,
+		"look at this https://example.com 👀": false,
+		"I'm giving away my old camera for free, DM me":              true,
+		"Please donate, even £5 helps this family https://gofund.me": true,
+	} {
+		if got := judgeable(text); got != want {
+			t.Errorf("judgeable(%q) = %v, want %v", text, got, want)
+		}
+	}
+}
