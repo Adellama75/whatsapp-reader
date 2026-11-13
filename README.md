@@ -51,7 +51,7 @@ Read it from another machine with `ssh server 'cd dev/whatsapp-reader && uv run 
 |---|---|
 | `transcript <group> [--days N \| --since T]` | pseudonymised messages, no API call |
 | `summarise <group> [--days N \| --since T] [--dry-run]` | digest via Claude; `--dry-run` shows exactly what would be sent |
-| `follow [group]` | stream new messages as they arrive (Ctrl-C to stop) |
+| `follow [group]` | stream new messages as they arrive (Ctrl-C to stop); an edited message comes again, marked `(edited)` |
 | `download <group> <id> [-o PATH]` | save one message's attachment (id from `transcript --ids`); see below |
 | `status` | bridge state, message count and last message per allowlisted group |
 | `index` | `data/groups.tsv`: every joined group with kind, members, community, allowlisted |
