@@ -1,0 +1,94 @@
+# Local config (gitignored).
+
+[paths]
+secret_file = "~/.config/whatsapp-reader/pseudonym.secret"
+data_dir = "data"
+bridge = "bridge/wareader-bridge"
+
+[bridge]
+history_days = 90
+archive_all = true  # every other chat -> data/private.db, encrypted (outbox plugin); Ada 2026-11-05
+outbox = true  # agent replies into the CIUK group; enabled 2026-10-20
+delete_spam = true  # delete-for-me spam in community announcements/General; enabled 2026-10-27
+spam_model = "claude-haiku-5-5"  # screens what the rules pass; Ada 2026-11-08
+spam_groups = [
+  "447447092698-1632867522@g.us",  # 💙💕🤍💞💙 trans gc; Ada request 2026-11-05
+  "120363428798715322@g.us",  # Opportunities (left UCL AI Society community); Ada 2026-11-05
+]
+
+[summariser]
+model = "claude-fable-5-1"
+effort = "low"
+
+# Only these groups are ever read. Find IDs with: wareader index
+[[groups]]
+jid = "120363429745023827@g.us"
+label = "UCL CS 26/27"
+save_media = true  # Ada request 2026-10-25; new images/docs only, no backfill
+
+[[groups]]
+jid = "120363413316869534@g.us"
+label = "CIUK Cluster Challenge - General"
+pseudonymise = false  # team agreed 2026-10-16
+max_sends_per_hour = 16  # doubled from [agent] default 8 at Ada request, 2026-10-22
+
+[[groups]]
+jid = "120363432746477035@g.us"
+label = "battlecode-updates"
+pseudonymise = false  # Ada + mia; Discord<->WhatsApp relay (dcagent wabridge), added 2026-10-21
+max_sends_per_hour = 50  # backstop; the relay caps at 40/h plus 10-min digests
+
+[[groups]]
+jid = "120363415497935883@g.us"
+label = "Challenge 2 CS-EEE 4"  # Ada request 2026-10-26
+pseudonymise = false  # Ada: real names OK in this group, 2026-10-27
+
+[[groups]]
+jid = "34656711893165@lid"
+label = "Daiki"  # direct chat; Ada request 2026-10-26, Daiki agreed
+
+[[groups]]
+jid = "120363410764023522@g.us"
+label = "UCL AI Society announcements"  # broadcast-only; Ada 2026-10-26, no consent ask needed for admin-only channels
+save_media = true  # event posters
+
+[[groups]]
+jid = "61238415515731@lid"
+label = "Khaleed"  # direct chat; Ada approved 2026-10-27 (send him the minutes draft)
+
+[[groups]]
+jid = "109200097153084@lid"
+label = "Zinnie"  # direct chat; Ada request 2026-11-13 (sublet rent/bills)
+
+[[groups]]
+jid = "73731854622906@lid"
+label = "Ida"  # direct chat; Ada request 2026-11-13 (flat rent/overpayment)
+
+# Display names for pseudonymise = false groups: "<jid user>" = "Name". Find IDs in the raw transcript.
+[names]
+"57153196953645" = "Ahmedalga"  # no push name; their stated GitHub handle
+
+[agent]
+group = "CIUK Cluster Challenge - General"
+repo = "bobby-ta/cluster-challenge-durham"
+workdir = "~/dev/cluster-challenge-durham"
+model = "claude-fable-5-1"
+debounce = 30
+max_wait = 300
+context = 40
+prefix = "[Claude]:"
+max_sends_per_hour = 8
+names = ["claude", "fable", "bot"]
+
+brief = """
+We are UCL's team in the CIUK Cluster Challenge 2026, Durham leg: build, tune and benchmark (likwid, Grid)
+on the DINE and DINE2 nodes of COSMA, then write a 2-page report and slides. `docs/team-plan.tex` is the
+plan and role split (members A-D); `README.md` maps the repo; `results/` holds every job's raw output and
+`results/runlog.csv`; `report/report.tex` is the report; `docs/*handoff*.md` are hand-over notes.
+"""
+[agent.github_users]
+"Me" = "adellama75"
+"Bobby" = "bobby-ta"
+"James" = "BigBouncyBoii"
+"Eric Huang" = "kaihuang1425"
+"Ahmedalga" = "Ahmedalga"

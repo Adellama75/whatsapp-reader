@@ -326,7 +326,13 @@ def main() -> None:
         if hasattr(plugin, "register"):
             plugin.register(sub)
 
-    args = p.parse_args()
+    args, rest = p.parse_known_args()
+    # argparse fills an optional trailing positional before it reads the options, so the text in
+    # `send <group> --file a.pdf "text"` arrives as a leftover: put it where it belongs.
+    if len(rest) == 1 and not rest[0].startswith("-") and getattr(args, "text", "") is None:
+        args.text, rest = rest[0], []
+    if rest:
+        p.error(f"unrecognized arguments: {' '.join(rest)}")
     os.environ["WHATSAPP_READER_CONFIG"] = str(args.config.resolve())
     c = cfg.load(args.config)
     try:
