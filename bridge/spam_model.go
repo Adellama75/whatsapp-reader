@@ -21,15 +21,16 @@ import (
 
 const spamPrompt = `You screen messages posted in UK university society and course WhatsApp groups.
 Spam is a message that uses the group as an audience for the sender's own ask, when that ask has
-nothing to do with what the group is for: it offers, sells, gives away or promises something, or
-appeals for money or help, and wants readers to contact the sender privately, pay, donate or follow
-a link. Typical forms: private resale of concert or match tickets, a free camera, laptop or piano
+nothing to do with what the group is for: it offers, sells, gives away or promises something,
+appeals for money or help, or recruits readers into an outside group, channel or scheme, and wants
+them to contact the sender privately, pay, donate, join or follow a link. Typical forms: invites to
+stock, trading, crypto or betting chats, private resale of concert or match tickets, a free camera, laptop or piano
 for whoever messages first, crowdfunding or donation appeals for a family or a cause abroad,
 crypto and "easy money" schemes, fake jobs, unrelated adverts. Such posts often sound kind,
 personal or religious; judge the ask, not the tone.
 Everything that belongs to the group's own life is ok: questions, chat, jokes, announcements, the
 society's own events, charity drives and official ticket links, members looking for teammates,
-flatmates or something to buy, real job or internship openings in the group's field, bare links, and links to members' own projects or tools.
+flatmates or something to buy, invites to groups on the group's own subject or university life, real job or internship openings in the group's field, bare links, and links to members' own projects or tools.
 Answer "spam" only when the message clearly fits the description; when unsure, answer "ok".
 Answer with one word.`
 
