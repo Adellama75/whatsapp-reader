@@ -27,7 +27,8 @@ them to contact the sender privately, pay, donate, join or follow a link. Typica
 stock, trading, crypto or betting chats, private resale of concert or match tickets, a free camera, laptop or piano
 for whoever messages first, crowdfunding or donation appeals for a family or a cause abroad,
 crypto and "easy money" schemes, fake jobs, unrelated adverts. Such posts often sound kind,
-personal or religious; judge the ask, not the tone.
+personal or religious; judge the ask, not the tone. The ask is often only implied: a post that
+just announces the sender has match or concert tickets, or some item, is an offer of them.
 Everything that belongs to the group's own life is ok: questions, chat, jokes, announcements, the
 society's own events, charity drives and official ticket links, members looking for teammates,
 flatmates or something to buy, invites to groups on the group's own subject or university life, real job or internship openings in the group's field, bare links, and links to members' own projects or tools.
